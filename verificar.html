@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<!--
+  verificar.html — Verificación independiente de una copia de «Mi fichaje».
+
+  Permite a cualquier persona (perito, abogado, juzgado) comprobar, sin
+  instalar nada y sin enviar datos a ningún servidor, que:
+    1. La cadena de huellas SHA-256 de un archivo exportado (.json) es íntegra:
+       ningún registro ha sido modificado, eliminado o reordenado.
+    2. Las fotos aportadas (.jpg) coinciden byte a byte con las registradas.
+
+  Todo el cálculo se hace en el navegador con la API estándar Web Crypto.
+  El algoritmo es idéntico al de app.js (función canonical()).
+
+  Vérification indépendante (FR) : ce fichier permet de contrôler l'intégrité
+  d'un export JSON et des photos associées. Voir METHODOLOGIE_FR.md.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Verificar fichajes · Vérifier les pointages</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .drop{display:block;margin-top:10px;padding:16px;border:1px dashed var(--line);border-radius:12px;background:var(--card);text-align:center;font-weight:600;cursor:pointer}
+  table{width:100%;border-collapse:collapse;font-size:.85rem;background:var(--card)}
+  th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top;font-variant-numeric:tabular-nums}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin-top:10px}
+  .ok{color:var(--in);font-weight:700} .ko{color:var(--out);font-weight:700}
+  input[type=file]{position:static;width:auto;height:auto;opacity:1;pointer-events:auto;margin-top:6px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Verificar fichajes</h1>
+  <p class="help" style="border:0;padding:0;margin-top:6px">Vérifier les pointages · Verify time records</p>
+
+  <h2>1. Copia exportada (.json) · Export JSON</h2>
+  <label class="drop">Elegir archivo · Choisir le fichier<br><input type="file" id="json" accept=".json,application/json"></label>
+
+  <h2>2. Fotos (.jpg), opcional · Photos, facultatif</h2>
+  <label class="drop">Elegir fotos · Choisir les photos<br><input type="file" id="fotos" accept="image/jpeg" multiple></label>
+
+  <div id="out" class="chain"></div>
+  <div id="tabla"></div>
+
+  <div class="help">
+    <p>Nada se envía a internet: todo se calcula en este dispositivo. · Aucune donnée n'est envoyée : tout est calculé localement.</p>
+    <p><a href="./">Volver a la app</a> · <a href="https://github.com/marccbalaguerr/fichaje">Código fuente / Code source</a></p>
+  </div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var data = null, fotos = [];
+
+  /* Misma definición que app.js: NO modificar. */
+  function canonical(r) {
+    return JSON.stringify([r.id, r.tipo, r.epoch, r.fechaLocal, r.zona, r.lat, r.lon,
+      r.precision, r.gpsEpoch, r.nota, r.dispositivo, r.fotoHash || "", r.prevHash]);
+  }
+  function sha256(d) {
+    var buf = typeof d === "string" ? new TextEncoder().encode(d) : d;
+    return crypto.subtle.digest("SHA-256", buf).then(function (h) {
+      return Array.prototype.map.call(new Uint8Array(h), function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+    });
+  }
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+
+  document.getElementById("json").onchange = function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    f.text().then(function (t) {
+      try { data = JSON.parse(t); } catch (err) { data = null; show("El archivo no es un JSON válido · Fichier JSON invalide", false); return; }
+      run();
+    });
+  };
+  document.getElementById("fotos").onchange = function (e) {
+    fotos = Array.prototype.slice.call(e.target.files);
+    if (data) run();
+  };
+
+  function show(t, ok) { var o = document.getElementById("out"); o.textContent = t; o.className = "chain " + (ok ? "ok" : "bad"); }
+
+  function run() {
+    var regs = (data && data.registros) || [];
+    if (!regs.length) { show("La copia no contiene registros · Aucun enregistrement", false); return; }
+
+    // Huellas de las fotos aportadas
+    var fotoHashes = {};
+    var p = Promise.all(fotos.map(function (f) {
+      return f.arrayBuffer().then(sha256).then(function (h) { fotoHashes[h] = f.name; });
+    }));
+
+    var rows = [], prev = "inicio", malos = 0;
+    p.then(function () {
+      var q = Promise.resolve();
+      regs.forEach(function (r, i) {
+        q = q.then(function () { return sha256(canonical(r)); }).then(function (h) {
+          var okHash = h === r.hash, okPrev = r.prevHash === prev;
+          if (!okHash || !okPrev) malos++;
+          prev = r.hash;
+          var foto = r.fotoHash ? (fotoHashes[r.fotoHash] ? '<span class="ok">✔ ' + esc(fotoHashes[r.fotoHash]) + '</span>' : (fotos.length ? '<span class="ko">no aportada / non fournie</span>' : "—")) : "";
+          rows.push("<tr><td>" + (i + 1) + "</td><td>" + esc(r.tipo) + "</td><td>" + esc(r.fechaLocal) + "</td><td>" +
+            (r.lat != null ? esc(r.lat + ", " + r.lon) + " ±" + esc(r.precision) + " m" : "—") + "</td><td>" + esc(r.nota) + "</td><td>" +
+            (okHash && okPrev ? '<span class="ok">✔</span>' : '<span class="ko">✘ ' + (!okHash ? "contenido alterado / contenu modifié" : "cadena rota / chaîne rompue") + "</span>") +
+            "</td><td>" + foto + "</td></tr>");
+        });
+      });
+      return q;
+    }).then(function () {
+      var finalOk = !data.ultimaHuella || data.ultimaHuella === prev;
+      if (!malos && finalOk) show("✔ " + regs.length + " registros íntegros y en orden · enregistrements intègres. Última huella / dernière empreinte: " + prev, true);
+      else show("✘ " + malos + " registro(s) no válidos · enregistrement(s) non valides" + (finalOk ? "" : " · la última huella no coincide / dernière empreinte différente"), false);
+      document.getElementById("tabla").innerHTML = '<div class="scroll"><table><thead><tr><th>#</th><th>Tipo / Type</th><th>Fecha y hora / Date et heure</th><th>GPS</th><th>Nota / Note</th><th>Integridad / Intégrité</th><th>Foto / Photo</th></tr></thead><tbody>' + rows.join("") + "</tbody></table></div>";
+    });
+  }
+})();
+</script>
+</body>
+</html>

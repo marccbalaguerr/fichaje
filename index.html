@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<!--
+  index.html — Pantalla principal de «Mi fichaje».
+  Registro personal de horas de trabajo con GPS, fotos con metadatos y
+  cadena de huellas SHA-256. Ver README.md para la descripción completa.
+  La lógica está en app.js; el aspecto en styles.css.
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fichaje">
+<meta name="theme-color" content="#2B4C7E">
+<title>Mi fichaje</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <h1>Mi fichaje</h1>
+
+  <section class="card" id="card" aria-live="polite">
+    <div class="date" id="date"></div>
+    <div class="time" id="time">--:--</div>
+    <div class="status" id="status"></div>
+    <div class="gps" id="gpsState"></div>
+    <textarea id="note" class="note" rows="1" placeholder="Nota opcional: obra, cliente, quién estaba…" aria-label="Nota"></textarea>
+    <button id="punch" class="punch">Fichar entrada</button>
+    <div class="row">
+      <button class="btn" id="punchPhoto">📷 Fichar con foto</button>
+      <button class="btn" id="onlyPhoto">📷 Foto de prueba</button>
+    </div>
+    <input type="file" id="cam" accept="image/*" capture="environment">
+    <div id="msg" class="msg"></div>
+  </section>
+
+  <h2>Horas</h2>
+  <div class="totals">
+    <div class="tot"><span>Hoy</span><strong id="tToday">0:00</strong></div>
+    <div class="tot"><span>Semana</span><strong id="tWeek">0:00</strong></div>
+    <div class="tot"><span>Mes</span><strong id="tMonth">0:00</strong></div>
+  </div>
+
+  <h2>Historial</h2>
+  <div id="history"></div>
+
+  <h2>Copias y comprobación</h2>
+  <div class="tools">
+    <button class="btn" id="mail">✉️ Enviarme por correo</button>
+    <button class="btn" id="json">Descargar copia</button>
+    <button class="btn" id="csv">Descargar CSV</button>
+    <button class="btn" id="verify">Comprobar integridad</button>
+  </div>
+  <div id="chain" class="chain"></div>
+
+  <div class="help">
+    <p>Cada fichaje guarda la hora, la ubicación GPS con su precisión y una huella SHA‑256 encadenada con el anterior. Las fotos llevan la ubicación y la hora grabadas en la imagen y en sus metadatos (EXIF), y su huella va dentro de la cadena.</p>
+    <p>Los fichajes no se pueden editar ni borrar. Si te equivocas, ficha otra vez y explícalo en la nota.</p>
+    <p><a href="verificar.html">Verificar una copia exportada</a> · <a href="https://github.com/marccbalaguerr/fichaje">Código fuente</a></p>
+    <p>Todo se guarda solo en este móvil. Usa «Enviarme por correo» al acabar cada día y guarda las fotos en tu carrete: así tienes copia y fecha de terceros.</p>
+  </div>
+</main>
+
+<!-- Librería MIT para escribir metadatos EXIF (ver lib/piexif-LICENSE.txt) -->
+<script src="lib/piexif.js"></script>
+<!-- Lógica de la app -->
+<script src="app.js"></script>
+</body>
+</html>

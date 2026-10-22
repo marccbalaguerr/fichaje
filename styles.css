@@ -1,0 +1,56 @@
+/*
+ * styles.css — Aspecto visual de la app «Mi fichaje».
+ * Solo afecta a la presentación; no interviene en el registro de datos.
+ * Los colores se adaptan automáticamente al modo claro u oscuro del móvil.
+ */
+:root{
+  --bg:#E9EEF2; --card:#FFFFFF; --ink:#1B2733; --muted:#5B6B7A; --line:#CCD6DF;
+  --blue:#2B4C7E; --in:#21804F; --out:#B23A26; --warn:#9A6A00; --soft:#F3F6F9;
+  color-scheme:light; box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0F161D; --card:#18222C; --ink:#E4EAF0; --muted:#93A3B3; --line:#2C3A47;
+  --blue:#7FA6DE; --in:#4CC489; --out:#F07A63; --warn:#E3B341; --soft:#1F2B37; color-scheme:dark;}}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.45}
+main{max-width:520px;margin:0 auto;padding:16px 16px 40px}
+h1,h2{margin:0;font-weight:700;letter-spacing:-.01em}
+h1{font-size:1.4rem} h2{font-size:1.15rem;margin:26px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;position:relative;overflow:hidden;margin-top:12px}
+.card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:8px;background:var(--state,var(--line))}
+.date{color:var(--muted);text-transform:capitalize}
+.time{font-weight:700;font-size:clamp(3.6rem,20vw,5.6rem);line-height:1;font-variant-numeric:tabular-nums;margin:4px 0 8px}
+.time small{font-size:.38em;color:var(--muted);font-weight:500;margin-left:4px}
+.status b{color:var(--state,var(--ink))}
+.note{width:100%;margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--soft);color:var(--ink);font:inherit;min-height:46px;resize:vertical}
+.punch{display:block;width:100%;margin-top:12px;padding:18px;border:0;border-radius:14px;font:inherit;font-size:1.4rem;font-weight:700;color:#fff;background:var(--in);cursor:pointer;touch-action:manipulation}
+.punch.out{background:var(--out)}
+.row{display:flex;gap:8px;margin-top:8px}
+.btn{flex:1 1 0;padding:13px 10px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-weight:600;cursor:pointer;text-align:center}
+button:disabled{opacity:.55}
+button:focus-visible,textarea:focus-visible,label:focus-within{outline:3px solid var(--blue);outline-offset:2px}
+.msg{min-height:1.4em;margin-top:10px;font-size:.92rem;color:var(--muted)}
+.msg.err{color:var(--out)} .msg.ok{color:var(--in)}
+.gps{font-size:.85rem;color:var(--muted);margin-top:6px}
+.totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tot{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.tot span{display:block;color:var(--muted);font-size:.85rem}
+.tot strong{font-size:1.45rem;font-variant-numeric:tabular-nums}
+.day{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden}
+.dayhead{display:flex;justify-content:space-between;padding:10px 14px;background:var(--soft);font-weight:600;text-transform:capitalize}
+.dayhead em{font-style:normal;color:var(--blue);font-variant-numeric:tabular-nums}
+.rec{display:grid;grid-template-columns:62px 1fr;gap:2px 10px;padding:10px 14px;border-top:1px solid var(--line)}
+.rec .t{font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums}
+.k{font-weight:700} .k.in{color:var(--in)} .k.out{color:var(--out)} .k.foto{color:var(--blue)}
+.meta{grid-column:2;font-size:.85rem;color:var(--muted);word-break:break-word}
+.meta a{color:var(--blue)} .bad{color:var(--warn)}
+.thumb{grid-column:2;display:flex;gap:8px;align-items:center;margin-top:6px}
+.thumb img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.thumb button{padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--soft);color:var(--ink);font:inherit;font-size:.85rem;font-weight:600}
+.empty{color:var(--muted);background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:18px;text-align:center}
+.tools{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.chain{margin-top:10px;font-size:.9rem;color:var(--muted)} .chain.ok{color:var(--in)} .chain.bad{color:var(--out)}
+.help{font-size:.9rem;color:var(--muted);margin-top:26px;border-top:1px solid var(--line);padding-top:14px}
+.help p{margin:0 0 8px}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
