@@ -1,104 +1,77 @@
 /*
  * ============================================================================
- *  app.js — Lógica de la aplicación «Mi fichaje»
+ *  app.js — Lógica de «Mi fichaje»
  * ============================================================================
  *
  *  FINALIDAD
- *  Registro personal de horas de trabajo (entradas, salidas y fotos) hecho por
- *  el propio trabajador, para poder acreditar las horas realmente trabajadas.
+ *  Registro personal de horas de trabajo hecho por el propio trabajador. Cada
+ *  entrada y cada salida es una FOTO hecha en ese momento con la cámara.
  *
- *  PRINCIPIOS DE DISEÑO (relevantes como prueba)
- *  1. Solo añadir: la app no tiene ninguna función para editar ni borrar un
- *     registro. Un error se corrige con un registro nuevo y una nota.
- *  2. Cadena de huellas: cada registro incluye la huella SHA-256 del registro
- *     anterior («prevHash») y su propia huella («hash»). Si se cambia, borra o
- *     reordena cualquier registro antiguo, la cadena deja de cuadrar y se
- *     detecta (función verify() y página verificar.html).
- *  3. Ubicación real: las coordenadas se piden en el momento al GPS del móvil
- *     mediante la API estándar del navegador (navigator.geolocation), con la
- *     precisión que el propio sistema operativo declara, en metros.
- *  4. Fotos: se hacen con la cámara en el momento. Se les graba un sello
- *     visible (fecha, hora, coordenadas) y los mismos datos en los metadatos
- *     EXIF. La huella SHA-256 del archivo de la foto entra en la cadena, por lo
- *     que cualquier retoque posterior de la foto es detectable.
- *  5. Copia en un repositorio privado de GitHub (opcional, recomendado): cada
- *     registro y cada foto se suben automáticamente, uno por uno, como un
- *     commit independiente. GitHub fija en sus servidores la fecha de cada
- *     commit, lo que aporta un sello de tiempo de un tercero independiente del
- *     reloj del móvil. La misma copia permite restaurar todo si se borran los
- *     datos del navegador o se cambia de móvil.
- *  6. Sin otros servidores: aparte de esa copia en GitHub (configurada por el
- *     propio usuario con su clave), nada se envía a terceros salvo cuando el
- *     usuario lo exporta o se lo envía por correo.
+ *  QUÉ OCURRE AL FICHAR
+ *  1. Se pulsa el botón y se abre la cámara; se hace la foto.
+ *  2. En ese instante se anota la hora y se pide la ubicación al GPS del móvil
+ *     (API estándar navigator.geolocation, sin usar posiciones antiguas).
+ *  3. La app graba en la propia foto una franja visible con: tipo (ENTRADA /
+ *     SALIDA), fecha, hora, desfase horario, coordenadas y precisión en metros.
+ *  4. Escribe los mismos datos en los metadatos EXIF estándar de la foto
+ *     (fecha/hora original, latitud, longitud, precisión, hora UTC del GPS).
+ *  5. Calcula la huella SHA-256 del archivo de la foto y crea un registro con
+ *     todos los datos, que incluye también la huella del registro anterior
+ *     (cadena de huellas). Cualquier cambio posterior en un registro o en una
+ *     foto es detectable con verificar.html.
+ *  6. Ofrece guardar la foto en la app Fotos del iPhone. Desde ahí se copia
+ *     sola a iCloud / Google Fotos, fuera del móvil.
  *
- *  LIMITACIONES CONOCIDAS (declaradas expresamente)
- *  - La hora procede del reloj del móvil. Por eso se recomienda enviarse por
- *    correo los registros a diario: el servidor de correo añade su propia
- *    fecha, independiente del usuario.
- *  - La huella demuestra integridad (que nada se ha cambiado después), no
- *    autoría por un tercero independiente.
+ *  REGLAS
+ *  - Solo añadir: no existe ninguna función para editar ni borrar registros.
+ *  - Sin servidores: todo se procesa en el móvil; no se envía nada a nadie.
  *
- *  Este archivo no usa librerías externas salvo lib/piexif.js (licencia MIT),
- *  que solo sirve para escribir los metadatos EXIF de las fotos.
+ *  LIMITACIONES (declaradas expresamente)
+ *  - La hora procede del reloj del móvil. La copia de la foto en iCloud /
+ *    Google Fotos y los envíos por mensaje o correo aportan fechas de terceros.
+ *  - La huella demuestra que nada se ha cambiado después, no la autoría por un
+ *    tercero independiente.
+ *
+ *  Librería externa: lib/piexif.js (licencia MIT), solo para escribir EXIF.
  * ============================================================================
  */
 (function () {
   "use strict";
 
   /* --------------------------------------------------------------------------
-   *  Constantes y utilidades
+   *  Utilidades
    * ------------------------------------------------------------------------ */
 
-  /** Clave bajo la que se guardan los registros en el almacenamiento del móvil. */
-  var LS_KEY = "fichaje.registros.v1";
-
-  /** Atajo para obtener un elemento de la página por su id. */
+  var LS_KEY = "fichaje.registros.v1";       // registros (texto JSON) en el móvil
   var $ = function (id) { return document.getElementById(id); };
+  var records = [];      // siempre ordenados por momento (epoch) ascendente
+  var idb = null;        // base de datos local de fotos (IndexedDB)
+  var busy = false;      // evita dobles fichajes
+  var lastBlob = null, lastRecord = null; // foto recién hecha, para guardarla
 
-  /** Lista de registros, siempre ordenada por momento (epoch) ascendente. */
-  var records = [];
-  /** Evita dobles pulsaciones mientras se está creando un registro. */
-  var busy = false;
-  /** Tipo de registro pendiente cuando se abre la cámara. */
-  var photoMode = null;
-  /** Base de datos local (IndexedDB) donde se guardan las fotos. */
-  var idb = null;
-
-  /** Rellena con cero a la izquierda (7 -> "07"). */
   function pad(n) { return String(n).padStart(2, "0"); }
-  /** Milisegundos -> "h:mm". */
   function fmtHM(ms) { var m = Math.round(ms / 60000); return Math.floor(m / 60) + ":" + pad(m % 60); }
-  /** Milisegundos -> "h:mm:ss". */
   function fmtHMS(ms) { var s = Math.floor(ms / 1000); return Math.floor(s / 3600) + ":" + pad(Math.floor(s / 60) % 60) + ":" + pad(s % 60); }
-  /** Fecha -> "AAAA-MM-DD" (día local), para agrupar el historial. */
   function dayKey(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
-  /** Zona horaria del móvil según el sistema (p. ej. "Europe/Luxembourg"). */
   var tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-  /** Desfase respecto a UTC de una fecha concreta, p. ej. "+02:00". */
+  /** Desfase respecto a UTC, p. ej. "+02:00". */
   function off(d) { var o = -d.getTimezoneOffset(), a = Math.abs(o); return (o >= 0 ? "+" : "-") + pad(Math.floor(a / 60)) + ":" + pad(a % 60); }
-  /** Fecha -> ISO 8601 en hora local con su desfase, p. ej. "2026-10-22T08:00:05+02:00". */
+  /** ISO 8601 en hora local con desfase, p. ej. "2026-10-22T08:00:05+02:00". */
   function localISO(d) {
     return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" +
       pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + off(d);
   }
-  /** Escapa texto para mostrarlo en la página sin interpretarlo como HTML. */
+  function hhmm(epoch) { return new Date(epoch).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }); }
   function esc(s) { var d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
-  /** Muestra un mensaje de estado bajo los botones. */
-  function setMsg(t, c) { var m = $("msg"); m.textContent = t; m.className = "msg" + (c ? " " + c : ""); }
+  function setMsg(t, err) { var m = $("msg"); m.textContent = t || ""; m.className = "msg" + (err ? " err" : ""); }
+  function label(t) { return t === "entrada" ? "Entrada" : t === "salida" ? "Salida" : "Foto"; }
 
   /* --------------------------------------------------------------------------
-   *  Almacenamiento local
-   *  - Registros: localStorage (texto JSON).
-   *  - Fotos: IndexedDB (archivos binarios), por su tamaño.
+   *  Almacenamiento en el móvil
    * ------------------------------------------------------------------------ */
 
-  function loadLocal() {
-    try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch (e) { return []; }
-  }
-  function saveLocal() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(records)); }
-    catch (e) { setMsg("No se pudo guardar en el móvil: ¿modo privado?", "err"); }
-  }
+  function loadLocal() { try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); } catch (e) { return []; } }
+  function saveLocal() { try { localStorage.setItem(LS_KEY, JSON.stringify(records)); } catch (e) {} }
   function openDB() {
     return new Promise(function (res) {
       try {
@@ -129,22 +102,16 @@
 
   /* --------------------------------------------------------------------------
    *  Huellas SHA-256
-   *
-   *  canonical(r) define EXACTAMENTE qué campos de un registro entran en su
-   *  huella y en qué orden. Es la misma función que usa verificar.html para
-   *  comprobar los registros de forma independiente. No debe modificarse:
-   *  cambiarla invalidaría la verificación de los registros ya hechos.
-   *
-   *  Campos (en este orden):
-   *    id, tipo, epoch, fechaLocal, zona, lat, lon, precision, gpsEpoch,
-   *    nota, dispositivo, fotoHash, prevHash
+   *  canonical(r) fija QUÉ campos entran en la huella y en qué orden. Es
+   *  idéntica a la de verificar.html. No debe modificarse.
+   *  Orden: id, tipo, epoch, fechaLocal, zona, lat, lon, precision, gpsEpoch,
+   *         nota, dispositivo, fotoHash, prevHash
    * ------------------------------------------------------------------------ */
 
   function canonical(r) {
     return JSON.stringify([r.id, r.tipo, r.epoch, r.fechaLocal, r.zona, r.lat, r.lon,
       r.precision, r.gpsEpoch, r.nota, r.dispositivo, r.fotoHash || "", r.prevHash]);
   }
-  /** SHA-256 en hexadecimal de un texto o de un ArrayBuffer (API Web Crypto estándar). */
   function sha256(data) {
     if (!(window.crypto && crypto.subtle)) return Promise.resolve("");
     var buf = typeof data === "string" ? new TextEncoder().encode(data) : data;
@@ -154,10 +121,10 @@
   }
 
   /* --------------------------------------------------------------------------
-   *  Ubicación GPS
-   *  enableHighAccuracy: pide el GPS, no solo la red.
-   *  maximumAge: 0       : prohíbe usar una ubicación antigua guardada.
-   *  «precision» es el radio de error en metros que declara el propio iPhone.
+   *  GPS
+   *  enableHighAccuracy: usa el GPS, no solo la red. maximumAge: 0 prohíbe
+   *  reutilizar una posición antigua. «precision» = radio de error en metros
+   *  que declara el propio iPhone.
    * ------------------------------------------------------------------------ */
 
   function getPosition() {
@@ -165,37 +132,20 @@
       if (!("geolocation" in navigator)) return res({ error: "Este navegador no da ubicación" });
       navigator.geolocation.getCurrentPosition(
         function (p) {
-          res({
-            lat: +p.coords.latitude.toFixed(6),
-            lon: +p.coords.longitude.toFixed(6),
-            precision: Math.round(p.coords.accuracy),
-            gpsEpoch: p.timestamp // momento en que el sistema obtuvo la posición
-          });
+          res({ lat: +p.coords.latitude.toFixed(6), lon: +p.coords.longitude.toFixed(6),
+            precision: Math.round(p.coords.accuracy), gpsEpoch: p.timestamp });
         },
         function (e) {
-          res({ error: e.code === 1 ? "Permiso de ubicación denegado" : e.code === 3 ? "El GPS tardó demasiado" : "No se pudo obtener la ubicación" });
+          res({ error: e.code === 1 ? "Ubicación bloqueada: actívala en Ajustes → Privacidad y seguridad → Localización → Sitios web de Safari"
+            : e.code === 3 ? "El GPS tardó demasiado" : "No se pudo obtener la ubicación" });
         },
         { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
       );
     });
   }
-  /** Muestra si la ubicación está permitida, bloqueada o pendiente de pedir. */
-  function checkPerm() {
-    if (!navigator.permissions || !navigator.permissions.query) return;
-    navigator.permissions.query({ name: "geolocation" }).then(function (s) {
-      function show() {
-        $("gpsState").textContent = s.state === "granted" ? "📍 Ubicación activada"
-          : s.state === "denied" ? "📍 Ubicación bloqueada: actívala en Ajustes → Privacidad y seguridad → Localización → Sitios web de Safari"
-          : "📍 Te pedirá la ubicación al fichar";
-      }
-      show(); s.onchange = show;
-    }).catch(function () {});
-  }
 
   /* --------------------------------------------------------------------------
-   *  Cálculo de horas
-   *  Solo cuentan los registros «entrada» y «salida». Las «fotos de prueba»
-   *  no alteran el cómputo. Cada entrada se empareja con la siguiente salida.
+   *  Horas trabajadas: cada entrada se empareja con la siguiente salida.
    * ------------------------------------------------------------------------ */
 
   function punches() { return records.filter(function (r) { return r.tipo === "entrada" || r.tipo === "salida"; }); }
@@ -210,7 +160,6 @@
     if (open) o.push({ s: open.epoch, e: Date.now() }); // turno en curso
     return o;
   }
-  /** Milisegundos trabajados dentro del intervalo [a, b). */
   function sumBetween(a, b) {
     var t = 0;
     sessions().forEach(function (x) { var s = Math.max(x.s, a), e = Math.min(x.e, b); if (e > s) t += e - s; });
@@ -221,41 +170,33 @@
    *  Pantalla
    * ------------------------------------------------------------------------ */
 
-  function label(t) { return t === "entrada" ? "Entrada" : t === "salida" ? "Salida" : "Foto"; }
-  function cls(t) { return t === "entrada" ? "in" : t === "salida" ? "out" : "foto"; }
-
   function renderClock() {
     var now = new Date();
     $("date").textContent = now.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
     $("time").innerHTML = pad(now.getHours()) + ":" + pad(now.getMinutes()) + "<small>" + pad(now.getSeconds()) + "</small>";
     var l = lastPunch();
-    if (isIn()) {
-      $("card").style.setProperty("--state", "var(--in)");
-      $("status").innerHTML = "<b>Dentro</b> desde las " + new Date(l.epoch).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) + " · " + fmtHMS(Date.now() - l.epoch);
-    } else {
-      $("card").style.setProperty("--state", "var(--out)");
-      $("status").innerHTML = l ? "<b>Fuera</b> · última salida " + new Date(l.epoch).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
-        : "<b>Fuera</b> · aún no hay fichajes";
-    }
+    $("card").style.setProperty("--state", isIn() ? "var(--in)" : "var(--out)");
+    $("status").innerHTML = isIn() ? "<b>Dentro</b> desde las " + hhmm(l.epoch) + " · " + fmtHMS(Date.now() - l.epoch)
+      : l ? "<b>Fuera</b> · última salida " + new Date(l.epoch).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+      : "<b>Fuera</b>";
     var d0 = new Date(); d0.setHours(0, 0, 0, 0);
-    var wk = new Date(d0); wk.setDate(wk.getDate() - ((wk.getDay() + 6) % 7)); // lunes de esta semana
+    var wk = new Date(d0); wk.setDate(wk.getDate() - ((wk.getDay() + 6) % 7)); // lunes
     var mo = new Date(d0.getFullYear(), d0.getMonth(), 1);
     $("tToday").textContent = fmtHM(sumBetween(+d0, Infinity));
     $("tWeek").textContent = fmtHM(sumBetween(+wk, Infinity));
     $("tMonth").textContent = fmtHM(sumBetween(+mo, Infinity));
   }
 
-  function renderButtons() {
-    var p = $("punch");
-    p.disabled = busy; $("punchPhoto").disabled = busy; $("onlyPhoto").disabled = busy;
-    p.textContent = busy ? "Fichando…" : isIn() ? "Fichar salida" : "Fichar entrada";
-    p.classList.toggle("out", isIn());
-    $("punchPhoto").textContent = isIn() ? "📷 Salida con foto" : "📷 Entrada con foto";
+  function renderButton() {
+    var b = $("punch");
+    b.disabled = busy;
+    b.textContent = busy ? "Procesando…" : isIn() ? "📷 Fichar salida" : "📷 Fichar entrada";
+    b.classList.toggle("out", isIn());
   }
 
   function renderHistory() {
     var h = $("history");
-    if (!records.length) { h.innerHTML = '<div class="empty">Tu primer fichaje aparecerá aquí con su hora y ubicación.</div>'; return; }
+    if (!records.length) { h.innerHTML = ""; return; }
     var groups = new Map();
     records.slice().reverse().forEach(function (r) {
       var k = dayKey(new Date(r.epoch));
@@ -264,82 +205,59 @@
     });
     var html = "", n = 0;
     groups.forEach(function (list) {
-      if (n++ >= 45) return; // se muestran los últimos 45 días; la exportación incluye todo
+      if (n++ >= 45) return; // últimos 45 días en pantalla; la exportación lo incluye todo
       var d = new Date(list[0].epoch), s = new Date(d); s.setHours(0, 0, 0, 0);
       var e = new Date(s); e.setDate(e.getDate() + 1);
       html += '<div class="day"><div class="dayhead"><span>' + d.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" }) +
         '</span><em>' + fmtHM(sumBetween(+s, +e)) + ' h</em></div>';
       list.forEach(function (r) {
-        var t = new Date(r.epoch).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
         var loc = r.lat != null
-          ? '<a href="https://maps.apple.com/?ll=' + r.lat + ',' + r.lon + '&q=' + encodeURIComponent(label(r.tipo)) + '" target="_blank" rel="noopener">' +
-            r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) + '</a> (±' + r.precision + ' m)'
-          : '<span class="bad">Sin ubicación: ' + esc(r.errorGps || "no disponible") + '</span>';
-        html += '<div class="rec"><span class="t">' + t + '</span><span class="k ' + cls(r.tipo) + '">' + label(r.tipo) + '</span>' +
-          '<span class="meta">' + loc + (r.nota ? '<br>' + esc(r.nota) : '') + '<br>Huella ' + (r.hash || '').slice(0, 12) + '…</span>' +
-          (r.fotoId ? '<div class="thumb" data-foto="' + r.fotoId + '"><img alt="Foto del fichaje"><button data-share="' + r.fotoId + '">Guardar / enviar foto</button></div>' : '') +
-          '</div>';
+          ? '<a href="https://maps.apple.com/?ll=' + r.lat + ',' + r.lon + '" target="_blank" rel="noopener">±' + r.precision + ' m · ver en mapa</a>'
+          : '<span class="bad">sin ubicación</span>';
+        html += '<div class="rec">' + (r.fotoId ? '<img data-foto="' + r.fotoId + '" alt="Foto, toca para guardarla">' : '') +
+          '<div><span class="t">' + hhmm(r.epoch) + '</span> <span class="k ' + (r.tipo === "entrada" ? "in" : "out") + '">' + label(r.tipo) + '</span>' +
+          '<div class="meta">' + loc + '</div></div></div>';
       });
       html += '</div>';
     });
     h.innerHTML = html;
-    // Miniaturas de las fotos (se leen de IndexedDB)
-    h.querySelectorAll("[data-foto]").forEach(function (el) {
-      getPhoto(el.dataset.foto).then(function (b) {
-        if (b) el.querySelector("img").src = URL.createObjectURL(b);
-        else el.querySelector("button").textContent = "Foto no disponible";
-      });
+    h.querySelectorAll("img[data-foto]").forEach(function (img) {
+      getPhoto(img.dataset.foto).then(function (b) { if (b) img.src = URL.createObjectURL(b); });
     });
   }
 
-  function renderAll() { renderClock(); renderButtons(); renderHistory(); renderSync(); }
+  function renderAll() { renderClock(); renderButton(); renderHistory(); }
 
   /* --------------------------------------------------------------------------
-   *  Fotos: sello visible + metadatos EXIF con GPS y hora
-   *
-   *  1. Se dibuja la foto en un lienzo (máx. 2400 px de lado).
-   *  2. Se añade una franja inferior con tipo, fecha, hora, desfase horario,
-   *     coordenadas, precisión y nota.
-   *  3. Se codifica en JPEG y se le insertan metadatos EXIF:
-   *       - DateTime / DateTimeOriginal / DateTimeDigitized (hora local)
-   *       - GPSLatitude / GPSLongitude (+ referencias N/S, E/W)
-   *       - GPSHPositioningError (precisión en metros)
-   *       - GPSDateStamp / GPSTimeStamp (hora UTC)
-   *       - ImageDescription (resumen legible) y Software = "Mi fichaje"
-   *  4. Se calcula la SHA-256 del JPEG final; esa huella entra en el registro.
+   *  Foto: sello visible + EXIF con hora y GPS
    * ------------------------------------------------------------------------ */
 
   function loadImage(file) {
-    return new Promise(function (res, rej) {
-      var i = new Image();
-      i.onload = function () { res(i); };
-      i.onerror = rej;
-      i.src = URL.createObjectURL(file);
-    });
+    return new Promise(function (res, rej) { var i = new Image(); i.onload = function () { res(i); }; i.onerror = rej; i.src = URL.createObjectURL(file); });
   }
   function dataURLtoBlob(d) {
-    var b = d.split(",")[1], bin = atob(b), a = new Uint8Array(bin.length);
+    var bin = atob(d.split(",")[1]), a = new Uint8Array(bin.length);
     for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
     return new Blob([a], { type: "image/jpeg" });
   }
-  /** El estándar EXIF solo admite ASCII en ImageDescription: se quitan tildes. */
+  /** EXIF ImageDescription solo admite ASCII: se quitan tildes. */
   function ascii(s) { return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, ""); }
 
-  function stampPhoto(file, pos, when, tipo, nota) {
+  function stampPhoto(file, pos, when, tipo) {
     return loadImage(file).then(function (img) {
-      var max = 2400, sc = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      // 1. Foto a un lienzo (máx. 2400 px de lado)
+      var sc = Math.min(1, 2400 / Math.max(img.naturalWidth, img.naturalHeight));
       var w = Math.round(img.naturalWidth * sc), h = Math.round(img.naturalHeight * sc);
       var c = document.createElement("canvas"); c.width = w; c.height = h;
       var g = c.getContext("2d");
       g.drawImage(img, 0, 0, w, h);
 
-      // Sello visible
-      var fs = Math.max(18, Math.round(w / 34));
+      // 2. Franja visible con los datos
+      var fs = Math.max(18, Math.round(w / 32));
       var lines = [
-        label(tipo).toUpperCase() + "  " + when.toLocaleString("es-ES", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " (" + off(when) + ")",
-        pos.lat != null ? ("GPS " + pos.lat.toFixed(6) + ", " + pos.lon.toFixed(6) + "  ±" + pos.precision + " m") : "GPS no disponible"
+        label(tipo).toUpperCase() + "  " + when.toLocaleString("es-ES", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " (UTC" + off(when) + ")",
+        pos.lat != null ? "GPS " + pos.lat.toFixed(6) + ", " + pos.lon.toFixed(6) + "  ±" + pos.precision + " m" : "GPS no disponible"
       ];
-      if (nota) lines.push(nota.slice(0, 80));
       var bh = Math.round(fs * 1.45 * lines.length + fs * 0.9);
       g.fillStyle = "rgba(0,0,0,.62)"; g.fillRect(0, h - bh, w, bh);
       g.fillStyle = "#fff"; g.font = "600 " + fs + "px -apple-system,system-ui,sans-serif"; g.textBaseline = "top";
@@ -347,12 +265,12 @@
 
       var data = c.toDataURL("image/jpeg", 0.9);
 
-      // Metadatos EXIF
+      // 3. Metadatos EXIF
       try {
-        var P = window.piexif, u = new Date(when.getTime());
-        var dt = when.getFullYear() + ":" + pad(when.getMonth() + 1) + ":" + pad(when.getDate()) + " " + pad(when.getHours()) + ":" + pad(when.getMinutes()) + ":" + pad(when.getSeconds());
+        var P = window.piexif, dt = when.getFullYear() + ":" + pad(when.getMonth() + 1) + ":" + pad(when.getDate()) + " " +
+          pad(when.getHours()) + ":" + pad(when.getMinutes()) + ":" + pad(when.getSeconds());
         var zero = {}, exif = {}, gps = {};
-        zero[P.ImageIFD.ImageDescription] = ascii(label(tipo) + " " + localISO(when) + (pos.lat != null ? " GPS " + pos.lat + "," + pos.lon + " +-" + pos.precision + "m" : "") + (nota ? " | " + nota : ""));
+        zero[P.ImageIFD.ImageDescription] = ascii(label(tipo) + " " + localISO(when) + (pos.lat != null ? " GPS " + pos.lat + "," + pos.lon + " +-" + pos.precision + "m" : ""));
         zero[P.ImageIFD.DateTime] = dt;
         zero[P.ImageIFD.Software] = "Mi fichaje";
         exif[P.ExifIFD.DateTimeOriginal] = dt;
@@ -364,362 +282,119 @@
           gps[P.GPSIFD.GPSLongitudeRef] = pos.lon >= 0 ? "E" : "W";
           gps[P.GPSIFD.GPSLongitude] = P.GPSHelper.degToDmsRational(Math.abs(pos.lon));
           gps[P.GPSIFD.GPSHPositioningError] = [Math.round(pos.precision * 100), 100];
-          gps[P.GPSIFD.GPSDateStamp] = u.getUTCFullYear() + ":" + pad(u.getUTCMonth() + 1) + ":" + pad(u.getUTCDate());
-          gps[P.GPSIFD.GPSTimeStamp] = [[u.getUTCHours(), 1], [u.getUTCMinutes(), 1], [u.getUTCSeconds(), 1]];
+          gps[P.GPSIFD.GPSDateStamp] = when.getUTCFullYear() + ":" + pad(when.getUTCMonth() + 1) + ":" + pad(when.getUTCDate());
+          gps[P.GPSIFD.GPSTimeStamp] = [[when.getUTCHours(), 1], [when.getUTCMinutes(), 1], [when.getUTCSeconds(), 1]];
         }
         data = P.insert(P.dump({ "0th": zero, "Exif": exif, "GPS": gps }), data);
-      } catch (e) { console.warn("No se pudieron escribir los EXIF", e); }
+      } catch (e) { console.warn("EXIF no escrito", e); }
 
       return dataURLtoBlob(data);
     });
   }
 
   /* --------------------------------------------------------------------------
-   *  Crear un registro (entrada, salida o foto)
+   *  Fichar
    *
-   *  Estructura de cada registro:
-   *    id          identificador único (momento en base 36 + aleatorio)
-   *    tipo        "entrada" | "salida" | "foto"
-   *    epoch       milisegundos desde 1970-01-01 UTC (reloj del móvil)
-   *    fechaLocal  misma hora en ISO 8601 local con desfase
-   *    zona        zona horaria del sistema
-   *    lat, lon    coordenadas GPS (6 decimales ≈ 0,1 m) o null
-   *    precision   radio de error en metros declarado por el sistema, o null
-   *    gpsEpoch    momento de la lectura GPS según el sistema, o null
-   *    errorGps    motivo si no hubo ubicación, o null (no entra en la huella)
-   *    nota        texto libre opcional del usuario
-   *    dispositivo identificación del navegador y sistema (User-Agent)
-   *    fotoId      referencia a la foto guardada (solo si hay foto)
-   *    fotoHash    SHA-256 del archivo JPEG de la foto (solo si hay foto)
-   *    prevHash    huella del registro anterior ("inicio" en el primero)
-   *    hash        SHA-256 de canonical(registro)
+   *  Campos del registro: id, tipo, epoch (ms UTC del reloj del móvil),
+   *  fechaLocal (ISO con desfase), zona, lat, lon, precision (m), gpsEpoch,
+   *  errorGps (no entra en la huella), nota (vacía en esta versión),
+   *  dispositivo (User-Agent), fotoId, fotoHash (SHA-256 del JPEG),
+   *  prevHash (huella del anterior o "inicio"), hash.
    * ------------------------------------------------------------------------ */
 
-  function addRecord(tipo, file) {
-    if (busy) return;
-    busy = true; renderButtons(); setMsg("Obteniendo ubicación GPS…");
-    var now, nota, r, blob = null, pos;
+  $("punch").onclick = function () { if (!busy) $("cam").click(); };
+
+  $("cam").onchange = function (e) {
+    var file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file || busy) return;
+    var when = new Date();                       // momento de la foto
+    var tipo = isIn() ? "salida" : "entrada";
+    var r, blob, pos;
+    busy = true; renderButton(); setMsg("Obteniendo ubicación…");
 
     getPosition().then(function (p) {
       pos = p;
-      now = new Date();
-      nota = $("note").value.trim();
+      setMsg("Preparando la foto…");
+      return stampPhoto(file, pos, when, tipo);
+    }).then(function (b) {
+      blob = b;
+      return b.arrayBuffer().then(sha256);
+    }).then(function (fotoHash) {
       var prev = records[records.length - 1];
       r = {
-        id: now.getTime().toString(36) + "-" + Math.random().toString(36).slice(2, 8),
-        tipo: tipo,
-        epoch: now.getTime(),
-        fechaLocal: localISO(now),
-        zona: tz,
-        lat: pos.lat != null ? pos.lat : null,
-        lon: pos.lon != null ? pos.lon : null,
-        precision: pos.precision != null ? pos.precision : null,
-        gpsEpoch: pos.gpsEpoch != null ? pos.gpsEpoch : null,
-        errorGps: pos.error || null,
-        nota: nota,
-        dispositivo: navigator.userAgent.slice(0, 180),
-        prevHash: prev ? (prev.hash || "") : "inicio"
+        id: when.getTime().toString(36) + "-" + Math.random().toString(36).slice(2, 8),
+        tipo: tipo, epoch: when.getTime(), fechaLocal: localISO(when), zona: tz,
+        lat: pos.lat != null ? pos.lat : null, lon: pos.lon != null ? pos.lon : null,
+        precision: pos.precision != null ? pos.precision : null, gpsEpoch: pos.gpsEpoch != null ? pos.gpsEpoch : null,
+        errorGps: pos.error || null, nota: "", dispositivo: navigator.userAgent.slice(0, 180),
+        fotoHash: fotoHash, prevHash: prev ? (prev.hash || "") : "inicio"
       };
-      if (!file) return null;
-      setMsg("Preparando la foto…");
-      return stampPhoto(file, pos, now, tipo, nota).then(function (b) {
-        blob = b;
-        return b.arrayBuffer();
-      }).then(function (buf) {
-        return sha256(buf);
-      }).then(function (fh) {
-        r.fotoHash = fh;
-        r.fotoId = "foto-" + r.id;
-        return putPhoto(r.fotoId, blob);
-      }).then(function (ok) {
-        if (!ok) setMsg("No se pudo guardar la foto en el móvil", "err");
-      }).catch(function () { setMsg("No se pudo procesar la foto", "err"); });
+      r.fotoId = "foto-" + r.id;
+      return putPhoto(r.fotoId, blob);
     }).then(function () {
       return sha256(canonical(r));
     }).then(function (h) {
       r.hash = h;
       records.push(r);
       saveLocal();
-      $("note").value = "";
-      busy = false;
-      renderAll();
-      var hora = now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
-      setMsg(label(tipo) + " a las " + hora + (pos.error ? " · " + pos.error : " con ubicación (±" + r.precision + " m)") +
-        (blob ? " · foto guardada. Pulsa «Guardar / enviar foto» para pasarla al carrete." : ""), pos.error ? "err" : "ok");
-      sync(); // sube el nuevo registro (y su foto) a la copia de GitHub
+      busy = false; renderAll(); setMsg(pos.error || "", !!pos.error);
+      openSheet(r, blob);
+    }).catch(function () {
+      busy = false; renderButton(); setMsg("No se pudo procesar la foto. Inténtalo otra vez.", true);
     });
-  }
-
-  $("punch").onclick = function () { addRecord(isIn() ? "salida" : "entrada"); };
-  $("punchPhoto").onclick = function () { photoMode = isIn() ? "salida" : "entrada"; $("cam").click(); };
-  $("onlyPhoto").onclick = function () { photoMode = "foto"; $("cam").click(); };
-  $("cam").onchange = function (e) {
-    var f = e.target.files && e.target.files[0];
-    e.target.value = "";
-    if (f && photoMode) addRecord(photoMode, f);
-    photoMode = null;
   };
 
   /* --------------------------------------------------------------------------
-   *  Exportar y compartir
-   *  Se usa la hoja de compartir del iPhone (Guardar imagen, Mail, WhatsApp…)
-   *  y, si no está disponible, una descarga normal.
+   *  Guardar la foto en Fotos (hoja de compartir del iPhone)
    * ------------------------------------------------------------------------ */
 
-  function shareOrDownload(blob, name, text) {
+  function fileName(r) { return "fichaje-" + r.tipo + "-" + r.fechaLocal.slice(0, 19).replace(/[:T]/g, "-") + ".jpg"; }
+
+  function openSheet(r, blob) {
+    lastRecord = r; lastBlob = blob;
+    $("preview").src = URL.createObjectURL(blob);
+    $("sheetText").innerHTML = "<b>" + label(r.tipo) + "</b> a las " + hhmm(r.epoch) +
+      (r.lat != null ? " · ubicación ±" + r.precision + " m" : ' · <span class="bad">sin ubicación</span>');
+    $("sheet").hidden = false;
+  }
+  function closeSheet() { $("sheet").hidden = true; lastBlob = null; lastRecord = null; }
+
+  function share(blob, name) {
     var file = new File([blob], name, { type: blob.type });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      return navigator.share({ files: [file], text: text }).catch(function (e) {
-        if (e.name !== "AbortError") download(blob, name);
-      });
+      return navigator.share({ files: [file] }).then(function () { return true; }, function () { return false; });
     }
-    download(blob, name);
-  }
-  function download(blob, name) {
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = name;
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
+    return Promise.resolve(true);
   }
-  function stamp() { var d = new Date(); return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes()); }
 
+  $("saveBtn").onclick = function () {
+    if (!lastBlob) return;
+    share(lastBlob, fileName(lastRecord)).then(function (ok) { if (ok) closeSheet(); });
+  };
+  $("closeBtn").onclick = closeSheet;
+
+  // Tocar una miniatura del historial vuelve a abrir su foto para guardarla
   $("history").addEventListener("click", function (e) {
-    var id = e.target.dataset && e.target.dataset.share;
+    var id = e.target.dataset && e.target.dataset.foto;
     if (!id) return;
-    getPhoto(id).then(function (b) {
-      if (!b) return setMsg("Esta foto ya no está en el móvil", "err");
-      var r = records.find(function (x) { return x.fotoId === id; });
-      shareOrDownload(b, "fichaje-" + (r ? r.fechaLocal.slice(0, 19).replace(/[:T]/g, "-") : id) + ".jpg", r ? label(r.tipo) + " " + r.fechaLocal : "");
-    });
+    var r = records.find(function (x) { return x.fotoId === id; });
+    getPhoto(id).then(function (b) { if (b && r) openSheet(r, b); });
   });
 
-  /** CSV legible en Excel (con BOM UTF-8 para las tildes). */
-  function csv() {
-    var head = ["tipo", "fecha_hora_local", "zona", "latitud", "longitud", "precision_m", "nota", "huella_foto", "huella", "huella_anterior", "id"];
-    function q(v) { var s = v == null ? "" : String(v); return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
-    return "\uFEFF" + [head.join(",")].concat(records.map(function (r) {
-      return [r.tipo, r.fechaLocal, r.zona, r.lat, r.lon, r.precision, r.nota, r.fotoHash, r.hash, r.prevHash, r.id].map(q).join(",");
-    })).join("\n");
-  }
-  $("csv").onclick = function () {
-    if (!records.length) return setMsg("Aún no hay fichajes");
-    shareOrDownload(new Blob([csv()], { type: "text/csv" }), "fichajes-" + stamp() + ".csv", "");
-  };
-  /** Copia completa en JSON: es el archivo que se verifica con verificar.html. */
-  $("json").onclick = function () {
+  /* --------------------------------------------------------------------------
+   *  Exportar el registro completo (JSON) para verificar con verificar.html
+   * ------------------------------------------------------------------------ */
+
+  $("export").onclick = function (e) {
+    e.preventDefault();
     if (!records.length) return setMsg("Aún no hay fichajes");
     var data = { app: "Mi fichaje", formato: 1, exportado: localISO(new Date()), zona: tz, total: records.length,
       ultimaHuella: records[records.length - 1].hash, registros: records };
-    shareOrDownload(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "fichajes-copia-" + stamp() + ".json", "");
-  };
-  /** Abre Mail con el resumen de los últimos 14 días, para tener sello de fecha de terceros. */
-  $("mail").onclick = function () {
-    if (!records.length) return setMsg("Aún no hay fichajes");
-    var since = Date.now() - 14 * 864e5;
-    var lines = records.filter(function (r) { return r.epoch >= since; }).map(function (r) {
-      return label(r.tipo).toUpperCase() + " " + r.fechaLocal + " | " + (r.lat != null ? r.lat + "," + r.lon + " (±" + r.precision + "m)" : "sin GPS") +
-        (r.nota ? " | " + r.nota : "") + (r.fotoHash ? " | foto " + r.fotoHash.slice(0, 16) : "") + " | #" + r.hash.slice(0, 16);
-    });
-    var body = "Registro de fichajes (últimos 14 días)\nEnviado: " + localISO(new Date()) + "\n\n" + lines.join("\n") +
-      "\n\nÚltima huella: " + records[records.length - 1].hash;
-    location.href = "mailto:?subject=" + encodeURIComponent("Fichajes " + new Date().toLocaleDateString("es-ES")) + "&body=" + encodeURIComponent(body);
-  };
-
-
-  /* --------------------------------------------------------------------------
-   *  Copia automática en GitHub (repositorio privado)
-   *
-   *  Configuración (guardada solo en este móvil):
-   *    usuario, repositorio y una clave de acceso «fine-grained» de GitHub con
-   *    permiso únicamente de «Contents: Read and write» sobre ese repositorio.
-   *
-   *  Estructura del repositorio de datos:
-   *    registros/AAAA/MM/<fechaLocal>_<tipo>_<id>.json   un archivo por registro
-   *    fotos/AAAA/MM/<fechaLocal>_<tipo>_<id>.jpg        la foto, si la hay
-   *
-   *  Cada archivo se sube con su propio commit mediante la API REST de GitHub
-   *  (PUT /repos/{usuario}/{repo}/contents/{ruta}). La app no envía fecha de
-   *  commit: GitHub asigna la del servidor en el momento de recibirlo. Esa
-   *  fecha, visible en el historial del repositorio, es independiente del
-   *  reloj del móvil.
-   *
-   *  Los archivos ya existentes nunca se sobrescriben: si GitHub responde que
-   *  el archivo ya existe, se da por subido. Así la copia también es
-   *  «solo añadir».
-   *
-   *  Si no hay conexión, los registros quedan pendientes y se suben en cuanto
-   *  vuelve la cobertura (al abrir la app, al fichar o al recuperar la red).
-   * ------------------------------------------------------------------------ */
-
-  var GH_KEY = "fichaje.github.v1";   // configuración de GitHub
-  var UP_KEY = "fichaje.subidos.v1";  // ids de registros ya subidos
-  var gh = (function () { try { return JSON.parse(localStorage.getItem(GH_KEY) || "{}"); } catch (e) { return {}; } })();
-  var uploaded = new Set((function () { try { return JSON.parse(localStorage.getItem(UP_KEY) || "[]"); } catch (e) { return []; } })());
-  var syncing = false, syncError = "";
-
-  function saveUploaded() { try { localStorage.setItem(UP_KEY, JSON.stringify(Array.from(uploaded))); } catch (e) {} }
-  function ghReady() { return !!(gh.user && gh.repo && gh.token); }
-
-  /** Llamada a la API de GitHub con la clave configurada. */
-  function ghApi(path, opts) {
-    opts = opts || {};
-    var h = { "Authorization": "Bearer " + gh.token, "X-GitHub-Api-Version": "2022-11-28",
-      "Accept": opts.raw ? "application/vnd.github.raw" : "application/vnd.github+json" };
-    if (opts.body) h["Content-Type"] = "application/json";
-    return fetch("https://api.github.com" + path, { method: opts.method || "GET", headers: h,
-      body: opts.body ? JSON.stringify(opts.body) : undefined, cache: "no-store" });
-  }
-  function repoPath() { return "/repos/" + encodeURIComponent(gh.user) + "/" + encodeURIComponent(gh.repo); }
-  function encPath(p) { return p.split("/").map(encodeURIComponent).join("/"); }
-
-  /** Ruta base de un registro en el repositorio, sin extensión. */
-  function recBase(r) {
-    return r.fechaLocal.slice(0, 4) + "/" + r.fechaLocal.slice(5, 7) + "/" +
-      r.fechaLocal.slice(0, 19).replace(/:/g, "-") + "_" + r.tipo + "_" + r.id;
-  }
-  /** Bytes -> base64 (por bloques, para fotos grandes). */
-  function bytesToB64(u8) {
-    var s = "";
-    for (var i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
-    return btoa(s);
-  }
-
-  /** Sube un archivo nuevo. Resuelve true si queda subido (o ya existía). */
-  function putFile(path, b64, message) {
-    return ghApi(repoPath() + "/contents/" + encPath(path), { method: "PUT", body: { message: message, content: b64 } })
-      .then(function (res) {
-        if (res.status === 200 || res.status === 201) return true;
-        if (res.status === 422) return true; // ya existe: nunca se sobrescribe
-        if (res.status === 401) throw new Error("Clave de GitHub no válida o caducada");
-        if (res.status === 403 || res.status === 404) throw new Error("La clave no tiene acceso a " + gh.user + "/" + gh.repo);
-        throw new Error("GitHub respondió " + res.status);
-      });
-  }
-
-  /** Sube, en orden y de uno en uno, todos los registros pendientes. */
-  function sync() {
-    if (!ghReady() || syncing) { renderSync(); return Promise.resolve(); }
-    var pending = records.filter(function (r) { return !uploaded.has(r.id); });
-    if (!pending.length) { syncError = ""; renderSync(); return Promise.resolve(); }
-    syncing = true; syncError = ""; renderSync();
-    var p = Promise.resolve();
-    pending.forEach(function (r) {
-      p = p.then(function () {
-        var base = recBase(r), msg = label(r.tipo).toUpperCase() + " " + r.fechaLocal + " · " + r.id;
-        var foto = r.fotoId ? getPhoto(r.fotoId).then(function (b) {
-          if (!b) return;
-          return b.arrayBuffer().then(function (buf) { return putFile("fotos/" + base + ".jpg", bytesToB64(new Uint8Array(buf)), "Foto · " + msg); });
-        }) : Promise.resolve();
-        return foto.then(function () {
-          var json = JSON.stringify(r, null, 2) + "\n";
-          return putFile("registros/" + base + ".json", bytesToB64(new TextEncoder().encode(json)), msg);
-        }).then(function () { uploaded.add(r.id); saveUploaded(); renderSync(); });
-      });
-    });
-    return p.catch(function (e) {
-      syncError = navigator.onLine === false ? "Sin conexión: se subirá al volver la cobertura" : e.message;
-    }).then(function () { syncing = false; renderSync(); });
-  }
-
-  /**
-   * Restaura desde GitHub los registros y fotos que falten en este móvil
-   * (tras borrar los datos de Safari o al cambiar de móvil).
-   */
-  function restore() {
-    if (!ghReady()) return Promise.reject(new Error("Configura primero la copia en GitHub"));
-    setMsg("Restaurando desde GitHub…");
-    return ghApi(repoPath() + "/git/trees/HEAD?recursive=1").then(function (res) {
-      if (!res.ok) throw new Error(res.status === 401 ? "Clave de GitHub no válida" : "No se pudo leer el repositorio (" + res.status + ")");
-      return res.json();
-    }).then(function (tree) {
-      var have = new Set(records.map(function (r) { return r.id; }));
-      var files = (tree.tree || []).filter(function (t) { return t.type === "blob" && /^registros\/.*\.json$/.test(t.path); });
-      var nuevos = [], p = Promise.resolve();
-      files.forEach(function (f) {
-        var id = f.path.replace(/^.*_/, "").replace(/\.json$/, "");
-        if (have.has(id)) { uploaded.add(id); return; }
-        p = p.then(function () {
-          return ghApi(repoPath() + "/contents/" + encPath(f.path), { raw: true }).then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (rec) { if (rec && rec.id) { nuevos.push(rec); uploaded.add(rec.id); } });
-        });
-      });
-      return p.then(function () {
-        records = records.concat(nuevos).sort(function (a, b) { return a.epoch - b.epoch; });
-        saveLocal(); saveUploaded();
-        // Fotos que falten en este móvil
-        var q = Promise.resolve(), fotos = 0;
-        records.filter(function (r) { return r.fotoId; }).forEach(function (r) {
-          q = q.then(function () { return getPhoto(r.fotoId); }).then(function (b) {
-            if (b) return;
-            return ghApi(repoPath() + "/contents/" + encPath("fotos/" + recBase(r) + ".jpg"), { raw: true })
-              .then(function (res) { return res.ok ? res.blob() : null; })
-              .then(function (blob) { if (blob) { fotos++; return putPhoto(r.fotoId, new Blob([blob], { type: "image/jpeg" })); } });
-          });
-        });
-        return q.then(function () {
-          renderAll();
-          setMsg("Restaurados " + nuevos.length + " registros y " + fotos + " fotos desde GitHub.", "ok");
-        });
-      });
-    });
-  }
-
-  /** Línea de estado de la copia en GitHub. */
-  function renderSync() {
-    var el = $("syncState"); if (!el) return;
-    var pend = records.filter(function (r) { return !uploaded.has(r.id); }).length;
-    if (!ghReady()) { el.textContent = "☁️ Copia en GitHub sin configurar"; el.className = "gps bad"; return; }
-    if (syncing) { el.textContent = "☁️ Subiendo a GitHub… (" + pend + " pendientes)"; el.className = "gps"; return; }
-    if (syncError) { el.textContent = "☁️ " + syncError + (pend ? " · " + pend + " pendientes" : ""); el.className = "gps bad"; return; }
-    el.textContent = pend ? "☁️ " + pend + " pendientes de subir" : "☁️ Copia en GitHub al día";
-    el.className = pend ? "gps bad" : "gps okc";
-  }
-
-  /* Formulario de configuración */
-  $("ghUser").value = gh.user || "marccbalaguerr";
-  $("ghRepo").value = gh.repo || "fichaje-datos";
-  $("ghToken").value = gh.token || "";
-  $("ghSave").onclick = function () {
-    gh = { user: $("ghUser").value.trim(), repo: $("ghRepo").value.trim(), token: $("ghToken").value.trim() };
-    try { localStorage.setItem(GH_KEY, JSON.stringify(gh)); } catch (e) {}
-    if (!ghReady()) { setMsg("Rellena usuario, repositorio y clave", "err"); renderSync(); return; }
-    setMsg("Probando la conexión…");
-    ghApi(repoPath()).then(function (res) {
-      if (!res.ok) throw new Error(res.status === 401 ? "Clave no válida" : "Sin acceso a " + gh.user + "/" + gh.repo);
-      // Al conectar: primero se recupera lo que haya en GitHub y después se sube lo local.
-      return restore().then(sync).then(function () { setMsg("Conectado. Los fichajes se subirán solos a GitHub.", "ok"); });
-    }).catch(function (e) { setMsg(e.message, "err"); renderSync(); });
-  };
-  $("ghRestore").onclick = function () { restore().then(sync).catch(function (e) { setMsg(e.message, "err"); }); };
-  $("ghSync").onclick = function () { sync(); };
-
-  // Reintentos automáticos
-  window.addEventListener("online", function () { sync(); });
-  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") sync(); });
-
-  /* --------------------------------------------------------------------------
-   *  Comprobación de integridad (misma lógica que verificar.html)
-   * ------------------------------------------------------------------------ */
-
-  $("verify").onclick = function () {
-    var el = $("chain");
-    if (!records.length) { el.className = "chain"; el.textContent = "Aún no hay fichajes."; return; }
-    var prev = "inicio", bad = 0, badFoto = 0;
-    var p = Promise.resolve();
-    records.forEach(function (r) {
-      p = p.then(function () { return sha256(canonical(r)); }).then(function (h) {
-        if (h !== r.hash || r.prevHash !== prev) bad++;
-        prev = r.hash;
-        if (!r.fotoId) return;
-        return getPhoto(r.fotoId).then(function (b) {
-          if (!b) return;
-          return b.arrayBuffer().then(sha256).then(function (fh) { if (fh !== r.fotoHash) badFoto++; });
-        });
-      });
-    });
-    p.then(function () {
-      if (!bad && !badFoto) { el.className = "chain ok"; el.textContent = "Los " + records.length + " registros y sus fotos están intactos y en orden."; }
-      else { el.className = "chain bad"; el.textContent = (bad ? bad + " registro(s) no cuadran con la cadena. " : "") + (badFoto ? badFoto + " foto(s) han sido modificadas." : ""); }
-    });
+    var d = new Date(), name = "fichajes-" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + ".json";
+    share(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), name);
   };
 
   /* --------------------------------------------------------------------------
@@ -727,11 +402,8 @@
    * ------------------------------------------------------------------------ */
 
   records = loadLocal().sort(function (a, b) { return a.epoch - b.epoch; });
-  // Pide al sistema que no borre los datos de esta web por falta de espacio.
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
-  openDB().then(function (d) { idb = d; renderAll(); sync(); });
+  openDB().then(function (d) { idb = d; renderAll(); });
   renderAll();
-  renderSync();
-  checkPerm();
   setInterval(renderClock, 1000);
 })();

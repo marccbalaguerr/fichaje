@@ -1,6 +1,8 @@
 # Mi fichaje
 
-Registro personal de jornada laboral para iPhone (y cualquier móvil), hecho por el propio trabajador para documentar sus horas reales de trabajo: entradas, salidas y fotos, cada una con hora, ubicación GPS y una huella criptográfica que impide modificar los registros sin que se note.
+Registro personal de jornada laboral para iPhone (y cualquier móvil), hecho por el propio trabajador para documentar sus horas reales de trabajo. **Cada entrada y cada salida es una foto** hecha en ese momento, con fecha, hora y ubicación GPS grabadas en la imagen y en sus metadatos, y una huella criptográfica que impide modificar los registros sin que se note.
+
+**Uso:** un solo botón. Se pulsa, se hace la foto y se guarda en la app Fotos del iPhone (desde donde se copia sola a iCloud o Google Fotos).
 
 **App:** https://marccbalaguerr.github.io/fichaje/
 **Verificación de copias:** https://marccbalaguerr.github.io/fichaje/verificar.html
@@ -20,7 +22,7 @@ Registro personal de jornada laboral para iPhone (y cualquier móvil), hecho por
 | `lat`, `lon` | Coordenadas GPS con 6 decimales | GPS del móvil, leído en el momento (`maximumAge: 0`) |
 | `precision` | Radio de error en metros | Declarado por el propio sistema operativo |
 | `gpsEpoch` | Momento en que el sistema obtuvo la posición | Sistema operativo |
-| `nota` | Texto libre (lugar, tarea, personas presentes…) | Usuario |
+| `nota` | Reservado (vacío en la versión actual) | — |
 | `dispositivo` | Identificación del navegador y sistema (User‑Agent) | Navegador |
 | `fotoHash` | SHA‑256 del archivo JPEG de la foto, si la hay | Calculado por la app |
 | `prevHash` | Huella del registro anterior (`inicio` en el primero) | Calculado por la app |
@@ -38,31 +40,16 @@ Si alguien cambia un solo carácter de un registro antiguo, su huella cambia y d
 
 **Solo añadir.** La app no tiene ninguna función para editar ni borrar registros. Los errores se corrigen con un registro nuevo y una nota explicativa.
 
-**Fotos.** Las fotos se hacen con la cámara en el momento del fichaje. La app:
+**Fotos.** Cada fichaje es una foto hecha con la cámara en ese momento. La app:
 1. graba en la propia imagen una franja visible con tipo de registro, fecha, hora, desfase horario, coordenadas y precisión;
 2. escribe los mismos datos en los metadatos EXIF estándar (`DateTimeOriginal`, `GPSLatitude`, `GPSLongitude`, `GPSHPositioningError`, `GPSDateStamp`, `GPSTimeStamp` en UTC, `ImageDescription`, `Software = "Mi fichaje"`);
 3. calcula la SHA‑256 del archivo final y la incluye en el registro (`fotoHash`), que a su vez entra en la cadena.
 
 Cualquier retoque de la foto después de hacerla cambia su huella y es detectable.
 
-## 3. Copia automática en GitHub y sello de tiempo de terceros
+## 3. Cómo verificar una copia (para peritos y juzgados)
 
-Si se configura (apartado «Copia en GitHub» de la app), cada registro y cada foto se suben automáticamente a un **repositorio privado** del usuario, cada uno en un **commit independiente**:
-
-```
-registros/AAAA/MM/<fechaLocal>_<tipo>_<id>.json
-fotos/AAAA/MM/<fechaLocal>_<tipo>_<id>.jpg
-```
-
-- La app **no envía ninguna fecha de commit**: GitHub asigna la de su servidor en el momento de recibir el archivo. Esa fecha (visible en el historial del repositorio y en la API de GitHub) es **independiente del reloj del móvil** y la custodia un tercero (GitHub, Inc.).
-- Comparando la hora del registro (`fechaLocal`) con la hora del commit se comprueba que el registro se creó en ese momento y no después. Sin cobertura, el registro se sube al recuperarla; el desfase queda reflejado.
-- Los archivos **nunca se sobrescriben**: si ya existe, la subida se rechaza. La copia también es de solo añadir.
-- La clave de acceso usada es de tipo *fine‑grained*, limitada a ese repositorio y al permiso «Contents».
-- La misma copia permite **restaurar** todos los registros y fotos en un móvil nuevo o tras borrar los datos del navegador.
-
-## 4. Cómo verificar una copia (para peritos y juzgados)
-
-1. En la app, pulsar **Descargar copia** para obtener el archivo `fichajes-copia-AAAAMMDD-HHMM.json`.
+1. En la app, pulsar **Exportar registro** (al pie de la pantalla) para obtener el archivo `fichajes-AAAAMMDD.json`.
 2. Abrir **https://marccbalaguerr.github.io/fichaje/verificar.html** en cualquier navegador.
 3. Seleccionar el archivo `.json` y, opcionalmente, las fotos `.jpg`.
 4. La página recalcula todas las huellas y muestra, registro por registro, si son íntegros y si cada foto coincide con la registrada.
@@ -71,37 +58,34 @@ La verificación se hace por completo en el navegador de quien verifica; no se e
 
 Para comprobar los metadatos de una foto puede usarse cualquier lector EXIF (por ejemplo `exiftool foto.jpg`).
 
-## 5. Limitaciones (declaradas expresamente)
+## 4. Limitaciones (declaradas expresamente)
 
-- **La hora procede del reloj del móvil.** La cadena demuestra que los registros no se han alterado después, pero no prueba por sí sola que el reloj fuera correcto. Por eso se usan la copia en GitHub (apartado 3) y las prácticas del apartado 6, que aportan sellos de tiempo de terceros.
-- **Sin la copia en GitHub, los datos se guardan solo en el móvil** (almacenamiento local del navegador). Si se borran los datos del navegador o se pierde el móvil, solo quedan las copias exportadas o enviadas.
+- **La hora procede del reloj del móvil.** La cadena demuestra que los registros no se han alterado después, pero no prueba por sí sola que el reloj fuera correcto. Por eso se siguen las prácticas del apartado 5, que aportan sellos de tiempo de terceros.
+- **El registro (JSON) se guarda en el móvil** (almacenamiento del navegador). Si se borran los datos del navegador, se pierde la lista, pero **las fotos guardadas en Fotos se conservan** con sus datos visibles y EXIF; por eso la app ofrece guardarlas tras cada fichaje.
 - **La ubicación es la que da el sistema operativo**, con la precisión que él mismo declara en metros.
 - **Es un registro de parte.** Lo elabora el propio trabajador; su valor está en la coherencia, la regularidad y su corroboración con otras pruebas (testigos, mensajes, pagos, correos).
 
-## 6. Prácticas recomendadas para reforzar la prueba
+## 5. Prácticas recomendadas para reforzar la prueba
 
-- **Mantener activada la copia en GitHub.**
-- **Enviarse los registros por correo** de vez en cuando con el botón «Enviarme por correo». El servidor de correo añade su propia fecha, independiente del usuario.
-- **Exportar la copia completa (.json) cada semana** y guardarla fuera del móvil (correo, nube).
-- **Guardar las fotos en el carrete** con «Guardar / enviar foto».
-- **Anotar en la nota** el lugar, la tarea y las personas presentes, que pueden declarar como testigos.
-- **Conservar mensajes, correos y justificantes de pago** relacionados con los horarios.
+- **Guardar cada foto en Fotos** al fichar, con la copia de iCloud o Google Fotos activada: el servicio en la nube registra la fecha de subida, independiente del usuario.
+- **Exportar el registro** de vez en cuando y enviárselo por correo (el servidor de correo añade su propia fecha).
+- **Conservar mensajes, correos y justificantes de pago** relacionados con los horarios, y anotar qué compañeros estaban presentes, que pueden declarar como testigos.
 
-## 7. Historial del código
+## 6. Historial del código
 
 El historial de cambios de este repositorio (commits de Git, con fecha registrada por GitHub) permite comprobar qué versión del código estaba publicada en cada momento.
 
-## 8. Archivos
+## 7. Archivos
 
 | Archivo | Función |
 |---|---|
 | `index.html` | Pantalla de la app |
-| `app.js` | Toda la lógica, comentada |
+| `app.js` | Toda la lógica, comentada paso a paso |
 | `styles.css` | Aspecto visual (no afecta a los datos) |
 | `verificar.html` | Verificación independiente de copias y fotos |
 | `lib/piexif.js` | Librería de terceros (licencia MIT) para escribir EXIF |
 | `METHODOLOGIE_FR.md` | Metodología en francés |
 
-## 9. Privacidad
+## 8. Privacidad
 
-El código es público; los datos no. Los fichajes y fotos se guardan en el móvil del usuario y, si lo configura, en su propio repositorio privado de GitHub. No se envían a ningún otro sitio salvo que el usuario los exporte.
+El código es público; los datos no. Los fichajes y fotos se procesan y guardan en el móvil del usuario y no se envían a ningún servidor; solo salen de él cuando el propio usuario los guarda en Fotos, los exporta o los envía.

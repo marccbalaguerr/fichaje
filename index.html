@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <!--
-  index.html — Pantalla principal de «Mi fichaje».
-  Registro personal de horas de trabajo con GPS, fotos con metadatos y
-  cadena de huellas SHA-256. Ver README.md para la descripción completa.
-  La lógica está en app.js; el aspecto en styles.css.
+  index.html — Pantalla de «Mi fichaje».
+  Fichaje con foto: cada entrada y salida es una foto hecha en el momento,
+  con fecha, hora y ubicación GPS grabadas en la imagen y en sus metadatos.
+  Lógica en app.js · Aspecto en styles.css · Metodología en README.md
 -->
 <html lang="es">
 <head>
@@ -17,69 +17,40 @@
 </head>
 <body>
 <main>
-  <h1>Mi fichaje</h1>
-
   <section class="card" id="card" aria-live="polite">
     <div class="date" id="date"></div>
     <div class="time" id="time">--:--</div>
     <div class="status" id="status"></div>
-    <div class="gps" id="gpsState"></div>
-    <div class="gps" id="syncState"></div>
-    <textarea id="note" class="note" rows="1" placeholder="Nota opcional: obra, cliente, quién estaba…" aria-label="Nota"></textarea>
-    <button id="punch" class="punch">Fichar entrada</button>
-    <div class="row">
-      <button class="btn" id="punchPhoto">📷 Fichar con foto</button>
-      <button class="btn" id="onlyPhoto">📷 Foto de prueba</button>
-    </div>
-    <input type="file" id="cam" accept="image/*" capture="environment">
+    <button id="punch" class="punch">📷 Fichar entrada</button>
     <div id="msg" class="msg"></div>
   </section>
+  <input type="file" id="cam" accept="image/*" capture="environment">
 
-  <h2>Horas</h2>
   <div class="totals">
     <div class="tot"><span>Hoy</span><strong id="tToday">0:00</strong></div>
     <div class="tot"><span>Semana</span><strong id="tWeek">0:00</strong></div>
     <div class="tot"><span>Mes</span><strong id="tMonth">0:00</strong></div>
   </div>
 
-  <h2>Historial</h2>
   <div id="history"></div>
 
-  <h2>Copias y comprobación</h2>
-  <div class="tools">
-    <button class="btn" id="mail">✉️ Enviarme por correo</button>
-    <button class="btn" id="json">Descargar copia</button>
-    <button class="btn" id="csv">Descargar CSV</button>
-    <button class="btn" id="verify">Comprobar integridad</button>
-  </div>
-  <div id="chain" class="chain"></div>
-
-
-  <h2>Copia en GitHub</h2>
-  <!-- Configuración de la copia automática en un repositorio privado (ver app.js) -->
-  <div class="settings">
-    <label>Usuario de GitHub<input id="ghUser" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-    <label>Repositorio privado<input id="ghRepo" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-    <label>Clave de acceso (github_pat_…)<input id="ghToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-    <div class="tools">
-      <button class="btn" id="ghSave">Guardar y conectar</button>
-      <button class="btn" id="ghSync">Subir pendientes</button>
-      <button class="btn" id="ghRestore" style="grid-column:1/-1">Restaurar desde GitHub</button>
-    </div>
-    <p class="gps">La clave solo se guarda en este móvil. Si borras los datos de Safari, vuelve a pegarla y pulsa «Guardar y conectar»: se recuperará todo antes de seguir fichando.</p>
-  </div>
-
-  <div class="help">
-    <p>Cada fichaje guarda la hora, la ubicación GPS con su precisión y una huella SHA‑256 encadenada con el anterior. Las fotos llevan la ubicación y la hora grabadas en la imagen y en sus metadatos (EXIF), y su huella va dentro de la cadena.</p>
-    <p>Los fichajes no se pueden editar ni borrar. Si te equivocas, ficha otra vez y explícalo en la nota.</p>
-    <p><a href="verificar.html">Verificar una copia exportada</a> · <a href="https://github.com/marccbalaguerr/fichaje">Código fuente</a></p>
-    <p>Con la copia en GitHub activada, cada fichaje y cada foto se suben solos a tu repositorio privado, y GitHub registra en su servidor la hora de llegada. Aun así, envíate el correo de vez en cuando como segunda copia.</p>
-  </div>
+  <footer class="foot">
+    <a href="#" id="export">Exportar registro</a> · <a href="verificar.html">Verificar</a> · <a href="https://github.com/marccbalaguerr/fichaje#readme">Cómo funciona</a>
+  </footer>
 </main>
+
+<!-- Resultado tras hacer la foto -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-in">
+    <img id="preview" alt="Foto del fichaje">
+    <div id="sheetText" class="sheet-text"></div>
+    <button id="saveBtn" class="punch">Guardar en Fotos</button>
+    <button id="closeBtn" class="link">Hecho</button>
+  </div>
+</div>
 
 <!-- Librería MIT para escribir metadatos EXIF (ver lib/piexif-LICENSE.txt) -->
 <script src="lib/piexif.js"></script>
-<!-- Lógica de la app -->
 <script src="app.js"></script>
 </body>
 </html>

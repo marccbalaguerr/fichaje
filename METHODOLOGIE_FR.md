@@ -4,7 +4,7 @@
 
 ## Objet
 
-Application de relevé personnel du temps de travail, utilisée par le salarié lui‑même pour documenter ses heures réelles : entrées, sorties et photos, chacune avec l'heure, la position GPS et une empreinte cryptographique empêchant toute modification non détectable.
+Application de relevé personnel du temps de travail, utilisée par le salarié lui‑même pour documenter ses heures réelles. **Chaque entrée et chaque sortie est une photo** prise à l'instant même, avec la date, l'heure et la position GPS incrustées dans l'image et inscrites dans ses métadonnées, ainsi qu'une empreinte cryptographique empêchant toute modification non détectable. La photo est ensuite enregistrée dans la photothèque du téléphone (et sa copie iCloud / Google Photos).
 
 - Application : https://marccbalaguerr.github.io/fichaje/
 - Vérification : https://marccbalaguerr.github.io/fichaje/verificar.html
@@ -21,7 +21,7 @@ Application de relevé personnel du temps de travail, utilisée par le salarié 
 | `lat`, `lon` | Coordonnées GPS (6 décimales) | GPS du téléphone, lu à l'instant même (`maximumAge: 0`) |
 | `precision` | Rayon d'incertitude en mètres | Déclaré par le système d'exploitation |
 | `gpsEpoch` | Instant d'acquisition de la position | Système d'exploitation |
-| `nota` | Note libre (lieu, tâche, personnes présentes…) | Utilisateur |
+| `nota` | Réservé (vide dans la version actuelle) | — |
 | `dispositivo` | Identification du navigateur et du système (User‑Agent) | Navigateur |
 | `fotoHash` | Empreinte SHA‑256 du fichier JPEG de la photo | Calculée par l'application |
 | `prevHash` | Empreinte de l'enregistrement précédent (`inicio` pour le premier) | Calculée par l'application |
@@ -41,40 +41,28 @@ La modification d'un seul caractère d'un enregistrement ancien change son empre
 
 **Photos.** Prises avec l'appareil photo au moment du pointage. L'application : (1) incruste une bande visible avec le type, la date, l'heure, le décalage horaire, les coordonnées et la précision ; (2) écrit les mêmes données dans les métadonnées EXIF standard (`DateTimeOriginal`, `GPSLatitude`, `GPSLongitude`, `GPSHPositioningError`, `GPSDateStamp`, `GPSTimeStamp` en UTC, `ImageDescription`, `Software = "Mi fichaje"`) ; (3) calcule l'empreinte SHA‑256 du fichier final et l'intègre à l'enregistrement, lui‑même chaîné. Toute retouche ultérieure est détectable.
 
-## 3. Copie automatique sur GitHub et horodatage par un tiers
+## 3. Procédure de vérification
 
-Lorsqu'elle est activée, chaque enregistrement et chaque photo sont envoyés automatiquement vers un **dépôt privé** de l'utilisateur, chacun dans un **commit distinct** (`registros/AAAA/MM/…json`, `fotos/AAAA/MM/…jpg`).
-
-- L'application **n'indique aucune date de commit** : GitHub attribue la date de son serveur au moment de la réception. Cette date est **indépendante de l'horloge du téléphone** et conservée par un tiers (GitHub, Inc.).
-- La comparaison entre l'heure de l'enregistrement (`fechaLocal`) et celle du commit permet de vérifier que l'enregistrement a été créé à ce moment et non a posteriori. Sans réseau, l'envoi a lieu au retour de la connexion ; l'écart reste visible.
-- Les fichiers **ne sont jamais écrasés** : un envoi vers un fichier existant est refusé.
-- La clé d'accès utilisée est de type *fine‑grained*, limitée à ce dépôt et à la permission « Contents ».
-
-## 4. Procédure de vérification
-
-1. Dans l'application, « Descargar copia » produit le fichier `fichajes-copia-AAAAMMJJ-HHMM.json`.
+1. Dans l'application, « Exportar registro » (bas de l'écran) produit le fichier `fichajes-AAAAMMJJ.json`.
 2. Ouvrir https://marccbalaguerr.github.io/fichaje/verificar.html dans un navigateur.
 3. Sélectionner le fichier `.json` et, le cas échéant, les photos `.jpg`.
 4. La page recalcule toutes les empreintes et indique, pour chaque enregistrement, son intégrité et la correspondance des photos.
 
 Le calcul est effectué entièrement dans le navigateur du vérificateur ; aucune donnée n'est transmise. Il peut aussi être reproduit avec tout outil SHA‑256 selon la définition ci‑dessus. Les métadonnées des photos peuvent être lues avec tout lecteur EXIF (par ex. `exiftool photo.jpg`).
 
-## 5. Limites (déclarées expressément)
+## 4. Limites (déclarées expressément)
 
-- L'heure provient de l'horloge du téléphone. La chaîne prouve l'absence de modification ultérieure, mais pas à elle seule l'exactitude de l'horloge ; d'où la copie sur GitHub (point 3) et les pratiques du point 6, qui apportent des horodatages de tiers.
-- Les données sont conservées uniquement sur le téléphone ; en cas de perte, seules subsistent les copies exportées ou envoyées.
+- L'heure provient de l'horloge du téléphone. La chaîne prouve l'absence de modification ultérieure, mais pas à elle seule l'exactitude de l'horloge ; d'où les pratiques du point 5, qui apportent des horodatages de tiers.
+- Le relevé (JSON) est conservé sur le téléphone ; s'il est effacé, les photos enregistrées dans la photothèque subsistent avec leurs données visibles et EXIF.
 - La position est celle fournie par le système d'exploitation, avec la précision qu'il déclare.
 - Il s'agit d'un relevé établi par le salarié lui‑même ; sa valeur repose sur sa cohérence, sa régularité et sa corroboration par d'autres éléments (témoins, messages, paiements, courriels).
 
-## 6. Pratiques suivies pour renforcer la preuve
+## 5. Pratiques suivies pour renforcer la preuve
 
-- Copie automatique sur GitHub activée.
-- Envoi régulier des relevés par courriel (horodatage indépendant du serveur de messagerie).
-- Export hebdomadaire de la copie complète, conservée hors du téléphone.
-- Conservation des photos dans la photothèque.
-- Indication dans les notes du lieu, de la tâche et des personnes présentes.
-- Conservation des messages, courriels et justificatifs de paiement liés aux horaires.
+- Enregistrement de chaque photo dans la photothèque avec copie iCloud / Google Photos (date d'envoi enregistrée par le service, indépendante de l'utilisateur).
+- Export régulier du relevé et envoi par courriel (horodatage du serveur de messagerie).
+- Conservation des messages, courriels et justificatifs de paiement liés aux horaires ; identification des collègues présents.
 
-## 7. Historique du code
+## 6. Historique du code
 
 L'historique Git de ce dépôt (commits horodatés par GitHub) permet d'établir quelle version du code était publiée à chaque date.
