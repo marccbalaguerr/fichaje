@@ -54,3 +54,10 @@ button:focus-visible,textarea:focus-visible,label:focus-within{outline:3px solid
 .help{font-size:.9rem;color:var(--muted);margin-top:26px;border-top:1px solid var(--line);padding-top:14px}
 .help p{margin:0 0 8px}
 input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+
+/* Ajustes de la copia en GitHub */
+.settings{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.settings label{display:block;font-size:.85rem;color:var(--muted);font-weight:600;margin-bottom:10px}
+.settings input{display:block;width:100%;margin-top:4px;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--soft);color:var(--ink);font:inherit;font-size:16px}
+.settings .tools{margin-top:4px}
+.gps.bad{color:var(--warn)} .gps.okc{color:var(--in)}

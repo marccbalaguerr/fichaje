@@ -21,8 +21,15 @@
  *     visible (fecha, hora, coordenadas) y los mismos datos en los metadatos
  *     EXIF. La huella SHA-256 del archivo de la foto entra en la cadena, por lo
  *     que cualquier retoque posterior de la foto es detectable.
- *  5. Sin servidores: todo se procesa y guarda en el propio móvil. No se envía
- *     nada a terceros salvo cuando el usuario lo exporta o se lo envía por correo.
+ *  5. Copia en un repositorio privado de GitHub (opcional, recomendado): cada
+ *     registro y cada foto se suben automáticamente, uno por uno, como un
+ *     commit independiente. GitHub fija en sus servidores la fecha de cada
+ *     commit, lo que aporta un sello de tiempo de un tercero independiente del
+ *     reloj del móvil. La misma copia permite restaurar todo si se borran los
+ *     datos del navegador o se cambia de móvil.
+ *  6. Sin otros servidores: aparte de esa copia en GitHub (configurada por el
+ *     propio usuario con su clave), nada se envía a terceros salvo cuando el
+ *     usuario lo exporta o se lo envía por correo.
  *
  *  LIMITACIONES CONOCIDAS (declaradas expresamente)
  *  - La hora procede del reloj del móvil. Por eso se recomienda enviarse por
@@ -285,7 +292,7 @@
     });
   }
 
-  function renderAll() { renderClock(); renderButtons(); renderHistory(); }
+  function renderAll() { renderClock(); renderButtons(); renderHistory(); renderSync(); }
 
   /* --------------------------------------------------------------------------
    *  Fotos: sello visible + metadatos EXIF con GPS y hora
@@ -439,6 +446,7 @@
       var hora = now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
       setMsg(label(tipo) + " a las " + hora + (pos.error ? " · " + pos.error : " con ubicación (±" + r.precision + " m)") +
         (blob ? " · foto guardada. Pulsa «Guardar / enviar foto» para pasarla al carrete." : ""), pos.error ? "err" : "ok");
+      sync(); // sube el nuevo registro (y su foto) a la copia de GitHub
     });
   }
 
@@ -516,6 +524,178 @@
     location.href = "mailto:?subject=" + encodeURIComponent("Fichajes " + new Date().toLocaleDateString("es-ES")) + "&body=" + encodeURIComponent(body);
   };
 
+
+  /* --------------------------------------------------------------------------
+   *  Copia automática en GitHub (repositorio privado)
+   *
+   *  Configuración (guardada solo en este móvil):
+   *    usuario, repositorio y una clave de acceso «fine-grained» de GitHub con
+   *    permiso únicamente de «Contents: Read and write» sobre ese repositorio.
+   *
+   *  Estructura del repositorio de datos:
+   *    registros/AAAA/MM/<fechaLocal>_<tipo>_<id>.json   un archivo por registro
+   *    fotos/AAAA/MM/<fechaLocal>_<tipo>_<id>.jpg        la foto, si la hay
+   *
+   *  Cada archivo se sube con su propio commit mediante la API REST de GitHub
+   *  (PUT /repos/{usuario}/{repo}/contents/{ruta}). La app no envía fecha de
+   *  commit: GitHub asigna la del servidor en el momento de recibirlo. Esa
+   *  fecha, visible en el historial del repositorio, es independiente del
+   *  reloj del móvil.
+   *
+   *  Los archivos ya existentes nunca se sobrescriben: si GitHub responde que
+   *  el archivo ya existe, se da por subido. Así la copia también es
+   *  «solo añadir».
+   *
+   *  Si no hay conexión, los registros quedan pendientes y se suben en cuanto
+   *  vuelve la cobertura (al abrir la app, al fichar o al recuperar la red).
+   * ------------------------------------------------------------------------ */
+
+  var GH_KEY = "fichaje.github.v1";   // configuración de GitHub
+  var UP_KEY = "fichaje.subidos.v1";  // ids de registros ya subidos
+  var gh = (function () { try { return JSON.parse(localStorage.getItem(GH_KEY) || "{}"); } catch (e) { return {}; } })();
+  var uploaded = new Set((function () { try { return JSON.parse(localStorage.getItem(UP_KEY) || "[]"); } catch (e) { return []; } })());
+  var syncing = false, syncError = "";
+
+  function saveUploaded() { try { localStorage.setItem(UP_KEY, JSON.stringify(Array.from(uploaded))); } catch (e) {} }
+  function ghReady() { return !!(gh.user && gh.repo && gh.token); }
+
+  /** Llamada a la API de GitHub con la clave configurada. */
+  function ghApi(path, opts) {
+    opts = opts || {};
+    var h = { "Authorization": "Bearer " + gh.token, "X-GitHub-Api-Version": "2022-11-28",
+      "Accept": opts.raw ? "application/vnd.github.raw" : "application/vnd.github+json" };
+    if (opts.body) h["Content-Type"] = "application/json";
+    return fetch("https://api.github.com" + path, { method: opts.method || "GET", headers: h,
+      body: opts.body ? JSON.stringify(opts.body) : undefined, cache: "no-store" });
+  }
+  function repoPath() { return "/repos/" + encodeURIComponent(gh.user) + "/" + encodeURIComponent(gh.repo); }
+  function encPath(p) { return p.split("/").map(encodeURIComponent).join("/"); }
+
+  /** Ruta base de un registro en el repositorio, sin extensión. */
+  function recBase(r) {
+    return r.fechaLocal.slice(0, 4) + "/" + r.fechaLocal.slice(5, 7) + "/" +
+      r.fechaLocal.slice(0, 19).replace(/:/g, "-") + "_" + r.tipo + "_" + r.id;
+  }
+  /** Bytes -> base64 (por bloques, para fotos grandes). */
+  function bytesToB64(u8) {
+    var s = "";
+    for (var i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+
+  /** Sube un archivo nuevo. Resuelve true si queda subido (o ya existía). */
+  function putFile(path, b64, message) {
+    return ghApi(repoPath() + "/contents/" + encPath(path), { method: "PUT", body: { message: message, content: b64 } })
+      .then(function (res) {
+        if (res.status === 200 || res.status === 201) return true;
+        if (res.status === 422) return true; // ya existe: nunca se sobrescribe
+        if (res.status === 401) throw new Error("Clave de GitHub no válida o caducada");
+        if (res.status === 403 || res.status === 404) throw new Error("La clave no tiene acceso a " + gh.user + "/" + gh.repo);
+        throw new Error("GitHub respondió " + res.status);
+      });
+  }
+
+  /** Sube, en orden y de uno en uno, todos los registros pendientes. */
+  function sync() {
+    if (!ghReady() || syncing) { renderSync(); return Promise.resolve(); }
+    var pending = records.filter(function (r) { return !uploaded.has(r.id); });
+    if (!pending.length) { syncError = ""; renderSync(); return Promise.resolve(); }
+    syncing = true; syncError = ""; renderSync();
+    var p = Promise.resolve();
+    pending.forEach(function (r) {
+      p = p.then(function () {
+        var base = recBase(r), msg = label(r.tipo).toUpperCase() + " " + r.fechaLocal + " · " + r.id;
+        var foto = r.fotoId ? getPhoto(r.fotoId).then(function (b) {
+          if (!b) return;
+          return b.arrayBuffer().then(function (buf) { return putFile("fotos/" + base + ".jpg", bytesToB64(new Uint8Array(buf)), "Foto · " + msg); });
+        }) : Promise.resolve();
+        return foto.then(function () {
+          var json = JSON.stringify(r, null, 2) + "\n";
+          return putFile("registros/" + base + ".json", bytesToB64(new TextEncoder().encode(json)), msg);
+        }).then(function () { uploaded.add(r.id); saveUploaded(); renderSync(); });
+      });
+    });
+    return p.catch(function (e) {
+      syncError = navigator.onLine === false ? "Sin conexión: se subirá al volver la cobertura" : e.message;
+    }).then(function () { syncing = false; renderSync(); });
+  }
+
+  /**
+   * Restaura desde GitHub los registros y fotos que falten en este móvil
+   * (tras borrar los datos de Safari o al cambiar de móvil).
+   */
+  function restore() {
+    if (!ghReady()) return Promise.reject(new Error("Configura primero la copia en GitHub"));
+    setMsg("Restaurando desde GitHub…");
+    return ghApi(repoPath() + "/git/trees/HEAD?recursive=1").then(function (res) {
+      if (!res.ok) throw new Error(res.status === 401 ? "Clave de GitHub no válida" : "No se pudo leer el repositorio (" + res.status + ")");
+      return res.json();
+    }).then(function (tree) {
+      var have = new Set(records.map(function (r) { return r.id; }));
+      var files = (tree.tree || []).filter(function (t) { return t.type === "blob" && /^registros\/.*\.json$/.test(t.path); });
+      var nuevos = [], p = Promise.resolve();
+      files.forEach(function (f) {
+        var id = f.path.replace(/^.*_/, "").replace(/\.json$/, "");
+        if (have.has(id)) { uploaded.add(id); return; }
+        p = p.then(function () {
+          return ghApi(repoPath() + "/contents/" + encPath(f.path), { raw: true }).then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (rec) { if (rec && rec.id) { nuevos.push(rec); uploaded.add(rec.id); } });
+        });
+      });
+      return p.then(function () {
+        records = records.concat(nuevos).sort(function (a, b) { return a.epoch - b.epoch; });
+        saveLocal(); saveUploaded();
+        // Fotos que falten en este móvil
+        var q = Promise.resolve(), fotos = 0;
+        records.filter(function (r) { return r.fotoId; }).forEach(function (r) {
+          q = q.then(function () { return getPhoto(r.fotoId); }).then(function (b) {
+            if (b) return;
+            return ghApi(repoPath() + "/contents/" + encPath("fotos/" + recBase(r) + ".jpg"), { raw: true })
+              .then(function (res) { return res.ok ? res.blob() : null; })
+              .then(function (blob) { if (blob) { fotos++; return putPhoto(r.fotoId, new Blob([blob], { type: "image/jpeg" })); } });
+          });
+        });
+        return q.then(function () {
+          renderAll();
+          setMsg("Restaurados " + nuevos.length + " registros y " + fotos + " fotos desde GitHub.", "ok");
+        });
+      });
+    });
+  }
+
+  /** Línea de estado de la copia en GitHub. */
+  function renderSync() {
+    var el = $("syncState"); if (!el) return;
+    var pend = records.filter(function (r) { return !uploaded.has(r.id); }).length;
+    if (!ghReady()) { el.textContent = "☁️ Copia en GitHub sin configurar"; el.className = "gps bad"; return; }
+    if (syncing) { el.textContent = "☁️ Subiendo a GitHub… (" + pend + " pendientes)"; el.className = "gps"; return; }
+    if (syncError) { el.textContent = "☁️ " + syncError + (pend ? " · " + pend + " pendientes" : ""); el.className = "gps bad"; return; }
+    el.textContent = pend ? "☁️ " + pend + " pendientes de subir" : "☁️ Copia en GitHub al día";
+    el.className = pend ? "gps bad" : "gps okc";
+  }
+
+  /* Formulario de configuración */
+  $("ghUser").value = gh.user || "marccbalaguerr";
+  $("ghRepo").value = gh.repo || "fichaje-datos";
+  $("ghToken").value = gh.token || "";
+  $("ghSave").onclick = function () {
+    gh = { user: $("ghUser").value.trim(), repo: $("ghRepo").value.trim(), token: $("ghToken").value.trim() };
+    try { localStorage.setItem(GH_KEY, JSON.stringify(gh)); } catch (e) {}
+    if (!ghReady()) { setMsg("Rellena usuario, repositorio y clave", "err"); renderSync(); return; }
+    setMsg("Probando la conexión…");
+    ghApi(repoPath()).then(function (res) {
+      if (!res.ok) throw new Error(res.status === 401 ? "Clave no válida" : "Sin acceso a " + gh.user + "/" + gh.repo);
+      // Al conectar: primero se recupera lo que haya en GitHub y después se sube lo local.
+      return restore().then(sync).then(function () { setMsg("Conectado. Los fichajes se subirán solos a GitHub.", "ok"); });
+    }).catch(function (e) { setMsg(e.message, "err"); renderSync(); });
+  };
+  $("ghRestore").onclick = function () { restore().then(sync).catch(function (e) { setMsg(e.message, "err"); }); };
+  $("ghSync").onclick = function () { sync(); };
+
+  // Reintentos automáticos
+  window.addEventListener("online", function () { sync(); });
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") sync(); });
+
   /* --------------------------------------------------------------------------
    *  Comprobación de integridad (misma lógica que verificar.html)
    * ------------------------------------------------------------------------ */
@@ -549,8 +729,9 @@
   records = loadLocal().sort(function (a, b) { return a.epoch - b.epoch; });
   // Pide al sistema que no borre los datos de esta web por falta de espacio.
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
-  openDB().then(function (d) { idb = d; renderAll(); });
+  openDB().then(function (d) { idb = d; renderAll(); sync(); });
   renderAll();
+  renderSync();
   checkPerm();
   setInterval(renderClock, 1000);
 })();

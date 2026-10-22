@@ -45,7 +45,22 @@ Si alguien cambia un solo carácter de un registro antiguo, su huella cambia y d
 
 Cualquier retoque de la foto después de hacerla cambia su huella y es detectable.
 
-## 3. Cómo verificar una copia (para peritos y juzgados)
+## 3. Copia automática en GitHub y sello de tiempo de terceros
+
+Si se configura (apartado «Copia en GitHub» de la app), cada registro y cada foto se suben automáticamente a un **repositorio privado** del usuario, cada uno en un **commit independiente**:
+
+```
+registros/AAAA/MM/<fechaLocal>_<tipo>_<id>.json
+fotos/AAAA/MM/<fechaLocal>_<tipo>_<id>.jpg
+```
+
+- La app **no envía ninguna fecha de commit**: GitHub asigna la de su servidor en el momento de recibir el archivo. Esa fecha (visible en el historial del repositorio y en la API de GitHub) es **independiente del reloj del móvil** y la custodia un tercero (GitHub, Inc.).
+- Comparando la hora del registro (`fechaLocal`) con la hora del commit se comprueba que el registro se creó en ese momento y no después. Sin cobertura, el registro se sube al recuperarla; el desfase queda reflejado.
+- Los archivos **nunca se sobrescriben**: si ya existe, la subida se rechaza. La copia también es de solo añadir.
+- La clave de acceso usada es de tipo *fine‑grained*, limitada a ese repositorio y al permiso «Contents».
+- La misma copia permite **restaurar** todos los registros y fotos en un móvil nuevo o tras borrar los datos del navegador.
+
+## 4. Cómo verificar una copia (para peritos y juzgados)
 
 1. En la app, pulsar **Descargar copia** para obtener el archivo `fichajes-copia-AAAAMMDD-HHMM.json`.
 2. Abrir **https://marccbalaguerr.github.io/fichaje/verificar.html** en cualquier navegador.
@@ -56,26 +71,27 @@ La verificación se hace por completo en el navegador de quien verifica; no se e
 
 Para comprobar los metadatos de una foto puede usarse cualquier lector EXIF (por ejemplo `exiftool foto.jpg`).
 
-## 4. Limitaciones (declaradas expresamente)
+## 5. Limitaciones (declaradas expresamente)
 
-- **La hora procede del reloj del móvil.** La cadena demuestra que los registros no se han alterado después, pero no prueba por sí sola que el reloj fuera correcto. Por eso se siguen las prácticas del apartado 5, que aportan sellos de tiempo de terceros.
-- **Los datos se guardan solo en el móvil** (almacenamiento local del navegador). Si se borran los datos del navegador o se pierde el móvil, solo quedan las copias exportadas o enviadas.
+- **La hora procede del reloj del móvil.** La cadena demuestra que los registros no se han alterado después, pero no prueba por sí sola que el reloj fuera correcto. Por eso se usan la copia en GitHub (apartado 3) y las prácticas del apartado 6, que aportan sellos de tiempo de terceros.
+- **Sin la copia en GitHub, los datos se guardan solo en el móvil** (almacenamiento local del navegador). Si se borran los datos del navegador o se pierde el móvil, solo quedan las copias exportadas o enviadas.
 - **La ubicación es la que da el sistema operativo**, con la precisión que él mismo declara en metros.
 - **Es un registro de parte.** Lo elabora el propio trabajador; su valor está en la coherencia, la regularidad y su corroboración con otras pruebas (testigos, mensajes, pagos, correos).
 
-## 5. Prácticas recomendadas para reforzar la prueba
+## 6. Prácticas recomendadas para reforzar la prueba
 
-- **Enviarse los registros por correo cada día** con el botón «Enviarme por correo». El servidor de correo añade su propia fecha, independiente del usuario.
+- **Mantener activada la copia en GitHub.**
+- **Enviarse los registros por correo** de vez en cuando con el botón «Enviarme por correo». El servidor de correo añade su propia fecha, independiente del usuario.
 - **Exportar la copia completa (.json) cada semana** y guardarla fuera del móvil (correo, nube).
 - **Guardar las fotos en el carrete** con «Guardar / enviar foto».
 - **Anotar en la nota** el lugar, la tarea y las personas presentes, que pueden declarar como testigos.
 - **Conservar mensajes, correos y justificantes de pago** relacionados con los horarios.
 
-## 6. Historial del código
+## 7. Historial del código
 
 El historial de cambios de este repositorio (commits de Git, con fecha registrada por GitHub) permite comprobar qué versión del código estaba publicada en cada momento.
 
-## 7. Archivos
+## 8. Archivos
 
 | Archivo | Función |
 |---|---|
@@ -86,6 +102,6 @@ El historial de cambios de este repositorio (commits de Git, con fecha registrad
 | `lib/piexif.js` | Librería de terceros (licencia MIT) para escribir EXIF |
 | `METHODOLOGIE_FR.md` | Metodología en francés |
 
-## 8. Privacidad
+## 9. Privacidad
 
-El código es público; los datos no. Los fichajes y fotos se guardan únicamente en el móvil del usuario y solo salen de él cuando el propio usuario los exporta o se los envía.
+El código es público; los datos no. Los fichajes y fotos se guardan en el móvil del usuario y, si lo configura, en su propio repositorio privado de GitHub. No se envían a ningún otro sitio salvo que el usuario los exporte.

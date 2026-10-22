@@ -41,7 +41,16 @@ La modification d'un seul caractère d'un enregistrement ancien change son empre
 
 **Photos.** Prises avec l'appareil photo au moment du pointage. L'application : (1) incruste une bande visible avec le type, la date, l'heure, le décalage horaire, les coordonnées et la précision ; (2) écrit les mêmes données dans les métadonnées EXIF standard (`DateTimeOriginal`, `GPSLatitude`, `GPSLongitude`, `GPSHPositioningError`, `GPSDateStamp`, `GPSTimeStamp` en UTC, `ImageDescription`, `Software = "Mi fichaje"`) ; (3) calcule l'empreinte SHA‑256 du fichier final et l'intègre à l'enregistrement, lui‑même chaîné. Toute retouche ultérieure est détectable.
 
-## 3. Procédure de vérification
+## 3. Copie automatique sur GitHub et horodatage par un tiers
+
+Lorsqu'elle est activée, chaque enregistrement et chaque photo sont envoyés automatiquement vers un **dépôt privé** de l'utilisateur, chacun dans un **commit distinct** (`registros/AAAA/MM/…json`, `fotos/AAAA/MM/…jpg`).
+
+- L'application **n'indique aucune date de commit** : GitHub attribue la date de son serveur au moment de la réception. Cette date est **indépendante de l'horloge du téléphone** et conservée par un tiers (GitHub, Inc.).
+- La comparaison entre l'heure de l'enregistrement (`fechaLocal`) et celle du commit permet de vérifier que l'enregistrement a été créé à ce moment et non a posteriori. Sans réseau, l'envoi a lieu au retour de la connexion ; l'écart reste visible.
+- Les fichiers **ne sont jamais écrasés** : un envoi vers un fichier existant est refusé.
+- La clé d'accès utilisée est de type *fine‑grained*, limitée à ce dépôt et à la permission « Contents ».
+
+## 4. Procédure de vérification
 
 1. Dans l'application, « Descargar copia » produit le fichier `fichajes-copia-AAAAMMJJ-HHMM.json`.
 2. Ouvrir https://marccbalaguerr.github.io/fichaje/verificar.html dans un navigateur.
@@ -50,21 +59,22 @@ La modification d'un seul caractère d'un enregistrement ancien change son empre
 
 Le calcul est effectué entièrement dans le navigateur du vérificateur ; aucune donnée n'est transmise. Il peut aussi être reproduit avec tout outil SHA‑256 selon la définition ci‑dessus. Les métadonnées des photos peuvent être lues avec tout lecteur EXIF (par ex. `exiftool photo.jpg`).
 
-## 4. Limites (déclarées expressément)
+## 5. Limites (déclarées expressément)
 
-- L'heure provient de l'horloge du téléphone. La chaîne prouve l'absence de modification ultérieure, mais pas à elle seule l'exactitude de l'horloge ; d'où les pratiques du point 5, qui apportent des horodatages de tiers.
+- L'heure provient de l'horloge du téléphone. La chaîne prouve l'absence de modification ultérieure, mais pas à elle seule l'exactitude de l'horloge ; d'où la copie sur GitHub (point 3) et les pratiques du point 6, qui apportent des horodatages de tiers.
 - Les données sont conservées uniquement sur le téléphone ; en cas de perte, seules subsistent les copies exportées ou envoyées.
 - La position est celle fournie par le système d'exploitation, avec la précision qu'il déclare.
 - Il s'agit d'un relevé établi par le salarié lui‑même ; sa valeur repose sur sa cohérence, sa régularité et sa corroboration par d'autres éléments (témoins, messages, paiements, courriels).
 
-## 5. Pratiques suivies pour renforcer la preuve
+## 6. Pratiques suivies pour renforcer la preuve
 
-- Envoi quotidien des relevés par courriel (horodatage indépendant du serveur de messagerie).
+- Copie automatique sur GitHub activée.
+- Envoi régulier des relevés par courriel (horodatage indépendant du serveur de messagerie).
 - Export hebdomadaire de la copie complète, conservée hors du téléphone.
 - Conservation des photos dans la photothèque.
 - Indication dans les notes du lieu, de la tâche et des personnes présentes.
 - Conservation des messages, courriels et justificatifs de paiement liés aux horaires.
 
-## 6. Historique du code
+## 7. Historique du code
 
 L'historique Git de ce dépôt (commits horodatés par GitHub) permet d'établir quelle version du code était publiée à chaque date.

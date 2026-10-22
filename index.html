@@ -24,6 +24,7 @@
     <div class="time" id="time">--:--</div>
     <div class="status" id="status"></div>
     <div class="gps" id="gpsState"></div>
+    <div class="gps" id="syncState"></div>
     <textarea id="note" class="note" rows="1" placeholder="Nota opcional: obra, cliente, quién estaba…" aria-label="Nota"></textarea>
     <button id="punch" class="punch">Fichar entrada</button>
     <div class="row">
@@ -53,11 +54,26 @@
   </div>
   <div id="chain" class="chain"></div>
 
+
+  <h2>Copia en GitHub</h2>
+  <!-- Configuración de la copia automática en un repositorio privado (ver app.js) -->
+  <div class="settings">
+    <label>Usuario de GitHub<input id="ghUser" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label>Repositorio privado<input id="ghRepo" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label>Clave de acceso (github_pat_…)<input id="ghToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <div class="tools">
+      <button class="btn" id="ghSave">Guardar y conectar</button>
+      <button class="btn" id="ghSync">Subir pendientes</button>
+      <button class="btn" id="ghRestore" style="grid-column:1/-1">Restaurar desde GitHub</button>
+    </div>
+    <p class="gps">La clave solo se guarda en este móvil. Si borras los datos de Safari, vuelve a pegarla y pulsa «Guardar y conectar»: se recuperará todo antes de seguir fichando.</p>
+  </div>
+
   <div class="help">
     <p>Cada fichaje guarda la hora, la ubicación GPS con su precisión y una huella SHA‑256 encadenada con el anterior. Las fotos llevan la ubicación y la hora grabadas en la imagen y en sus metadatos (EXIF), y su huella va dentro de la cadena.</p>
     <p>Los fichajes no se pueden editar ni borrar. Si te equivocas, ficha otra vez y explícalo en la nota.</p>
     <p><a href="verificar.html">Verificar una copia exportada</a> · <a href="https://github.com/marccbalaguerr/fichaje">Código fuente</a></p>
-    <p>Todo se guarda solo en este móvil. Usa «Enviarme por correo» al acabar cada día y guarda las fotos en tu carrete: así tienes copia y fecha de terceros.</p>
+    <p>Con la copia en GitHub activada, cada fichaje y cada foto se suben solos a tu repositorio privado, y GitHub registra en su servidor la hora de llegada. Aun así, envíate el correo de vez en cuando como segunda copia.</p>
   </div>
 </main>
 
